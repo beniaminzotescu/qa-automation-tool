@@ -74,6 +74,7 @@ const api: AppApi = {
   updateKnowledgeNote: (projectId, id, note) => ipcRenderer.invoke(IPC.updateKnowledgeNote, projectId, id, note),
   removeKnowledgeItem: (projectId, id) => ipcRenderer.invoke(IPC.removeKnowledgeItem, projectId, id),
 
+  getAppVersion: () => ipcRenderer.invoke(IPC.getAppVersion),
   getUpdateStatus: () => ipcRenderer.invoke(IPC.getUpdateStatus),
   restartToUpdate: () => ipcRenderer.invoke(IPC.restartToUpdate),
   onUpdateStatus: (listener) => {

@@ -1,6 +1,6 @@
 {
   "name": "qa-asd-ste100",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Build automated tests by using your application and talking to an assistant; translate them into your team's framework.",
   "main": "./out/main/index.js",

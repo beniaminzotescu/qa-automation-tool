@@ -577,6 +577,8 @@ export interface AppApi {
   exportDraft(projectId: string, draftId: string): Promise<SendResult>
   onDraftsUpdate(listener: (update: DraftsUpdate) => void): () => void
 
+  /** The installed app's version, e.g. 0.3.2. */
+  getAppVersion(): Promise<string>
   getUpdateStatus(): Promise<UpdateStatus>
   restartToUpdate(): Promise<void>
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
@@ -641,6 +643,7 @@ export const IPC = {
   updateKnowledgeNote: 'knowledge:note',
   removeKnowledgeItem: 'knowledge:remove',
   knowledgeUpdate: 'knowledge:update',
+  getAppVersion: 'app:version',
   getUpdateStatus: 'update:get',
   restartToUpdate: 'update:restart',
   updateStatus: 'update:status',

@@ -72,7 +72,9 @@ export default function App() {
     return (
       <div className="app">
         <header className="topbar">
-          <span className="brand">QA-ASD-STE100</span>
+          <span className="brand">
+            QA-ASD-STE100 <AppVersion />
+          </span>
         </header>
         <main className="content onboarding-page">
           <OnboardingScreen
@@ -101,7 +103,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <button className="brand" onClick={() => setScreen('tests')}>
-          QA-ASD-STE100
+          QA-ASD-STE100 <AppVersion />
         </button>
         <UpdateBar />
         <nav>
@@ -175,4 +177,13 @@ function NavLink({
 
 function isReady(ai: AiSettings, claudeCode: ClaudeCodeStatus | null): boolean {
   return ai.mode === 'claude-code' ? claudeCode?.state === 'ready' : ai.apiKey.hasKey
+}
+
+/** The version next to the name, so people can tell which one they have. */
+function AppVersion() {
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    window.api.getAppVersion().then(setVersion)
+  }, [])
+  return version ? <span className="app-version">v{version}</span> : null
 }

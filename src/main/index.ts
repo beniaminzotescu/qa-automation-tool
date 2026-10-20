@@ -164,6 +164,7 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.removeKnowledgeItem, (_event, id: string, itemId: string) => knowledge.removeItem(id, itemId))
 
+  ipcMain.handle(IPC.getAppVersion, () => app.getVersion())
   ipcMain.handle(IPC.getUpdateStatus, () => getUpdateStatus())
   ipcMain.handle(IPC.restartToUpdate, () => restartToUpdate())
   ipcMain.handle(IPC.getApiState, (_event, id: string) => apiWorkbench.getApiState(id))
