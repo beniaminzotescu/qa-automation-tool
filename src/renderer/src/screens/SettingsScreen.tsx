@@ -9,7 +9,9 @@ interface Props {
   onAiChange(ai: AiSettings): void
   onRecheckClaudeCode(): void
   onDone(): void
-  onOpenAdmin(): void
+  /** null hides the Admin link (during the first-time setup). */
+  onOpenAdmin: (() => void) | null
+  title?: string
 }
 
 const MODES: { mode: AiMode; title: string; text: string }[] = [
@@ -25,14 +27,14 @@ const MODES: { mode: AiMode; title: string; text: string }[] = [
   }
 ]
 
-export default function SettingsScreen({ ai, claudeCode, ready, onAiChange, onRecheckClaudeCode, onDone, onOpenAdmin }: Props) {
+export default function SettingsScreen({ ai, claudeCode, ready, onAiChange, onRecheckClaudeCode, onDone, onOpenAdmin, title = 'Settings' }: Props) {
   async function chooseMode(mode: AiMode): Promise<void> {
     if (mode !== ai.mode) onAiChange(await window.api.setAiMode(mode))
   }
 
   return (
     <section className="settings">
-      <h1>Settings</h1>
+      <h1>{title}</h1>
 
       <div className="card">
         <h2>Connect to Claude</h2>
@@ -71,11 +73,13 @@ export default function SettingsScreen({ ai, claudeCode, ready, onAiChange, onRe
         </button>
       )}
 
-      <div className="admin-link">
-        <button className="button link small muted" onClick={onOpenAdmin}>
-          Admin (QA team)
-        </button>
-      </div>
+      {onOpenAdmin && (
+        <div className="admin-link">
+          <button className="button link small muted" onClick={onOpenAdmin}>
+            Admin (QA team)
+          </button>
+        </div>
+      )}
     </section>
   )
 }

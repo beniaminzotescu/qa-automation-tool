@@ -1,8 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { extname, isAbsolute, join, relative } from 'node:path'
-import { STAGES, IPC, type Chat, type ChatItem, type Project, type Stage, type TestReport } from '../shared/api'
+import { STAGES, IPC, type Chat, type ChatItem, type ChatSummary, type Project, type Stage, type TestReport } from '../shared/api'
 import { buildChatPrompt, type PromptApplication } from './chatPrompt'
 import { runTurn, type ContentBlock, type McpServer, type StreamMessage } from './claudeRunner'
 import { freshPath, quote, runCommand } from './process'
@@ -25,24 +25,111 @@ const BROWSER_SERVER = 'browser'
 
 const running = new Map<string, AbortController>()
 
+// All conversations of a project are kept: chats/<project>/conversations/<chat>/chat.json, plus
+// files Claude may read (the tester's environment). current.json says which one is open.
 const chatDir = (projectId: string): string => join(app.getPath('userData'), 'chats', projectId)
-const chatFile = (projectId: string): string => join(chatDir(projectId), 'chat.json')
+const conversationsDir = (projectId: string): string => join(chatDir(projectId), 'conversations')
+const conversationDir = (projectId: string, chatId: string): string => join(conversationsDir(projectId), chatId)
+const currentFile = (projectId: string): string => join(chatDir(projectId), 'current.json')
 
-export function getChat(projectId: string): Chat | null {
-  const file = chatFile(projectId)
+function readChat(projectId: string, chatId: string): Chat | null {
+  const file = join(conversationDir(projectId, chatId), 'chat.json')
   if (!existsSync(file)) return null
-  const chat: Chat = JSON.parse(readFileSync(file, 'utf8'))
-  // A turn can't still be running after the app restarted.
-  if (chat.status !== 'idle' && !running.has(projectId)) chat.status = 'idle'
-  return chat
+  try {
+    const chat: Chat = JSON.parse(readFileSync(file, 'utf8'))
+    // A turn can't still be running after the app restarted.
+    if (chat.status !== 'idle' && !running.has(projectId)) chat.status = 'idle'
+    return chat
+  } catch {
+    return null
+  }
+}
+
+/** Earlier versions kept one conversation in chats/<project>/chat.json: move it into the list. */
+function migrateSingleChat(projectId: string): void {
+  const legacy = join(chatDir(projectId), 'chat.json')
+  if (!existsSync(legacy)) return
+  try {
+    const chat: Chat = JSON.parse(readFileSync(legacy, 'utf8'))
+    mkdirSync(conversationDir(projectId, chat.id), { recursive: true })
+    renameSync(legacy, join(conversationDir(projectId, chat.id), 'chat.json'))
+    setCurrent(projectId, chat.id)
+  } catch {
+    rmSync(legacy, { force: true })
+  }
+}
+
+function setCurrent(projectId: string, chatId: string | null): void {
+  mkdirSync(chatDir(projectId), { recursive: true })
+  writeFileSync(currentFile(projectId), JSON.stringify({ id: chatId }))
+}
+
+/** The open conversation, or null when the tester starts a new one. */
+export function getChat(projectId: string): Chat | null {
+  migrateSingleChat(projectId)
+  try {
+    const { id } = JSON.parse(readFileSync(currentFile(projectId), 'utf8')) as { id: string | null }
+    return id ? readChat(projectId, id) : null
+  } catch {
+    return null
+  }
 }
 
 function save(chat: Chat): void {
-  mkdirSync(chatDir(chat.projectId), { recursive: true })
-  writeFileSync(chatFile(chat.projectId), JSON.stringify(chat, null, 1))
+  mkdirSync(conversationDir(chat.projectId, chat.id), { recursive: true })
+  writeFileSync(join(conversationDir(chat.projectId, chat.id), 'chat.json'), JSON.stringify(chat, null, 1))
+  setCurrent(chat.projectId, chat.id)
+  emit(chat.projectId, chat)
+}
+
+function emit(projectId: string, chat: Chat | null): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(IPC.chatUpdate, { projectId: chat.projectId, chat })
+    if (!window.isDestroyed()) window.webContents.send(IPC.chatUpdate, { projectId, chat })
   }
+}
+
+/** Past conversations, newest first, titled by their first message. */
+export function listChats(projectId: string): ChatSummary[] {
+  migrateSingleChat(projectId)
+  if (!existsSync(conversationsDir(projectId))) return []
+  const summaries: ChatSummary[] = []
+  for (const id of readdirSync(conversationsDir(projectId))) {
+    const chat = readChat(projectId, id)
+    if (!chat || chat.items.length === 0) continue
+    const first = chat.items.find((item) => item.kind === 'user')
+    const updatedAt = statSync(join(conversationDir(projectId, id), 'chat.json')).mtime.toISOString()
+    summaries.push({
+      id,
+      title: first && first.kind === 'user' ? first.text.replace(/\s+/g, ' ').slice(0, 80) : 'Conversation',
+      createdAt: chat.createdAt,
+      updatedAt,
+      messages: chat.items.filter((item) => item.kind === 'user' || item.kind === 'assistant').length
+    })
+  }
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+/** Reopens a past conversation; the next message continues it. */
+export function openChat(projectId: string, chatId: string): Chat | null {
+  if (running.has(projectId)) throw new Error('Wait until the assistant has finished.')
+  const chat = readChat(projectId, chatId)
+  if (!chat) return null
+  setCurrent(projectId, chatId)
+  emit(projectId, chat)
+  return chat
+}
+
+export function deleteChat(projectId: string, chatId: string): ChatSummary[] {
+  const current = getChat(projectId)
+  if (current?.id === chatId) {
+    if (running.has(projectId)) throw new Error('Wait until the assistant has finished.')
+    setCurrent(projectId, null)
+    emit(projectId, null)
+  }
+  const chat = readChat(projectId, chatId)
+  if (chat?.recordingDir) rmSync(chat.recordingDir, { recursive: true, force: true })
+  rmSync(conversationDir(projectId, chatId), { recursive: true, force: true })
+  return listChats(projectId)
 }
 
 /** A chat item without its id, for each kind of item. */
@@ -118,15 +205,11 @@ export function stopChat(projectId: string): void {
   if (chat) notice(chat, 'Stopped. Send a message to continue.')
 }
 
-/** Starts a new conversation. Kept tests stay; only the chat (and its recording) is cleared. */
+/** Starts a new conversation. The current one stays in the past chats; kept tests are not touched. */
 export async function discardChat(project: Project): Promise<void> {
-  running.get(project.id)?.abort()
-  const chat = getChat(project.id)
-  rmSync(chatDir(project.id), { recursive: true, force: true })
-  if (chat?.recordingDir) rmSync(chat.recordingDir, { recursive: true, force: true })
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(IPC.chatUpdate, { projectId: project.id, chat: null })
-  }
+  if (running.has(project.id)) throw new Error('Wait until the assistant has finished.')
+  setCurrent(project.id, null)
+  emit(project.id, null)
 }
 
 /**
@@ -170,7 +253,8 @@ async function runClaude(
   mode: TurnMode,
   signal: AbortSignal
 ): Promise<void> {
-  const dir = chatDir(project.id)
+  // Files for this turn (instructions, settings, results, screenshots) live with the conversation.
+  const dir = conversationDir(project.id, chat.id)
   // Drafts: Claude works in the tester's drafts folder and only reads the framework.
   // Translation: Claude works in the app's copy of the framework, on the branch the app made.
   const cwd = mode.kind === 'draft' ? ensureDraftsProject(project.id) : project.workspacePath
@@ -317,12 +401,17 @@ function handleMessage(chat: Chat, message: StreamMessage, context: TurnContext)
       push(chat, { kind: 'notice', tone: 'error', text: `The assistant stopped with an error: ${message.result ?? message.subtype}` })
     }
     if (message.permission_denials?.length) {
+      // Skipped commands are technical details, not news for the tester: they go with the
+      // assistant's steps (under "Show details"), before its last message.
       const what = [...new Set(message.permission_denials.map((d) => describeTool(d.tool_name, d.tool_input, context.cwd).detail ?? d.tool_name))]
-      push(chat, {
-        kind: 'notice',
-        tone: 'info',
-        text: `The assistant tried ${what.length === 1 ? 'something' : 'some things'} the app does not allow, and worked around it: ${what.join('; ')}`
-      })
+      const skipped: ChatItem[] = what.map((detail) => ({
+        kind: 'activity',
+        id: randomUUID(),
+        label: "Skipped a command the app doesn't allow",
+        detail
+      }))
+      const lastAssistant = chat.items.map((item) => item.kind).lastIndexOf('assistant')
+      chat.items.splice(lastAssistant === -1 ? chat.items.length : lastAssistant, 0, ...skipped)
     }
   }
 }

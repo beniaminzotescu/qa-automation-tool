@@ -71,7 +71,7 @@ export default function RepositoryScreen({ onRepoChanged }: Props) {
   )
 }
 
-function LocalFolderCard({ config, onChanged }: { config: RepoConfig; onChanged(config: RepoConfig): void }) {
+export function LocalFolderCard({ config, onChanged }: { config: RepoConfig; onChanged(config: RepoConfig): void }) {
   const [check, setCheck] = useState<InspectResult | null>(null)
 
   async function choose(): Promise<void> {
@@ -102,7 +102,7 @@ function LocalFolderCard({ config, onChanged }: { config: RepoConfig; onChanged(
   )
 }
 
-function SshKeyCard({ status, onChange }: { status: SshKeyStatus; onChange(status: SshKeyStatus): void }) {
+export function SshKeyCard({ status, onChange }: { status: SshKeyStatus; onChange(status: SshKeyStatus): void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -180,7 +180,7 @@ function SshKeyCard({ status, onChange }: { status: SshKeyStatus; onChange(statu
   )
 }
 
-function CloneCard({ config, hasKey, onCloned }: { config: RepoConfig; hasKey: boolean; onCloned(): void }) {
+export function CloneCard({ config, hasKey, onCloned }: { config: RepoConfig; hasKey: boolean; onCloned(): void }) {
   const [url, setUrl] = useState(config.url ?? '')
   const [token, setToken] = useState('')
   const [checking, setChecking] = useState(false)

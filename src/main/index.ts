@@ -1,12 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell, type WebContents } from 'electron'
+import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import { IPC, type AccountInput, type AiMode, type AiSettings, type CheckId, type BrowserInput, type BrowserNavigation, type RecorderMode, type UserType } from '../shared/api'
+import { IPC, type AccountInput, type AiMode, type AiSettings, type CheckId, type ApiRequest, type BrowserInput, type BrowserNavigation, type RecorderMode, type UserType } from '../shared/api'
 import { getAccount, saveAccount } from './account'
 import { getApiKeyStatus, removeApiKey, saveApiKey } from './apiKey'
 import { fixCheck, runChecks } from './checks'
 import { checkClaudeCode, openClaudeLogin } from './claudeCode'
 import { inspectFolder, scanFramework } from './framework'
-import { addRunResult, discardChat, getChat, openTrace, readAttachment, sendMessage, stopChat, translateDraft } from './chat'
+import { addRunResult, deleteChat, discardChat, getChat, listChats, openChat, openTrace, readAttachment, sendMessage, stopChat, translateDraft } from './chat'
 import { exportForQa, sendForReview } from './translate'
 import { getProject } from './projects'
 import { getPrepareStatus, installTool, startPrepare } from './prepare'
@@ -15,12 +16,17 @@ import { createSshKey, getSshKey, importSshKey, removeSshKey } from './sshKey'
 import * as liveBrowser from './liveBrowser'
 import { checkForUpdates, getUpdateStatus, restartToUpdate } from './updater'
 import * as steps from './steps'
+import * as apiWorkbench from './apiWorkbench'
 import * as drafts from './drafts'
 import * as knowledge from './knowledge'
 import { loadSettings, updateSettings } from './settings'
 
 // For automated tests: run with a separate data folder, so a test never touches real settings.
-if (process.env.TFB_USER_DATA) app.setPath('userData', process.env.TFB_USER_DATA)
+if (process.env.TFB_USER_DATA) {
+  // The long folder name, not the short one (BENIAM~1): the assistant's file tools use long names.
+  mkdirSync(process.env.TFB_USER_DATA, { recursive: true })
+  app.setPath('userData', realpathSync.native(process.env.TFB_USER_DATA))
+}
 
 function createWindow(): void {
   // 1920x1080, or the whole screen when it is smaller (minus the taskbar).
@@ -94,6 +100,11 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.stopChat, (_event, id: string) => stopChat(id))
   ipcMain.handle(IPC.discardChat, (_event, id: string) => discardChat(getProject(id)))
+  ipcMain.handle(IPC.listChats, (_event, id: string) => listChats(id))
+  ipcMain.handle(IPC.openChat, (_event, id: string, chatId: string) => {
+    openChat(id, chatId)
+  })
+  ipcMain.handle(IPC.deleteChat, (_event, id: string, chatId: string) => deleteChat(id, chatId))
   ipcMain.handle(IPC.readAttachment, (_event, id: string, path: string) => readAttachment(getProject(id), path))
   ipcMain.handle(IPC.openTrace, (_event, id: string, path: string) => openTrace(getProject(id), path))
 
@@ -120,6 +131,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.installTool, (_event, tool: 'git' | 'node') => installTool(tool === 'git' ? 'git' : 'node'))
   ipcMain.handle(IPC.getAccount, () => getAccount())
   ipcMain.handle(IPC.saveAccount, (_event, input: AccountInput) => saveAccount(input))
+  ipcMain.handle(IPC.getOnboardingDone, () => {
+    const settings = loadSettings()
+    if (settings.onboardingDone !== undefined) return settings.onboardingDone
+    // Set up before the onboarding existed: don't show it again.
+    return Boolean(settings.userType && settings.account && settings.projects.some((p) => p.setupDone))
+  })
+  ipcMain.handle(IPC.setOnboardingDone, (_event, done: boolean) => {
+    updateSettings({ onboardingDone: done === true })
+  })
   ipcMain.handle(IPC.getUserType, () => loadSettings().userType)
   ipcMain.handle(IPC.setUserType, (_event, type: UserType) => {
     updateSettings({ userType: type === 'technical' ? 'technical' : 'manual' })
@@ -146,6 +166,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.getUpdateStatus, () => getUpdateStatus())
   ipcMain.handle(IPC.restartToUpdate, () => restartToUpdate())
+  ipcMain.handle(IPC.getApiState, (_event, id: string) => apiWorkbench.getApiState(id))
+  ipcMain.handle(IPC.sendApiRequest, (_event, id: string, request: ApiRequest) => apiWorkbench.sendRequest(id, request))
+  ipcMain.handle(IPC.setApiCapturing, (_event, id: string, on: boolean) => apiWorkbench.setCapturing(id, on === true))
+  ipcMain.handle(IPC.clearApiCalls, (_event, id: string) => apiWorkbench.clearCalls(id))
   ipcMain.handle(IPC.getDrafts, (_event, id: string) => drafts.getDraftsUpdate(id))
   // Not awaited: a run can take minutes. Progress goes out as drafts and chat updates.
   ipcMain.handle(IPC.runDraft, (_event, id: string, draftId: string) => {

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { getApiKey } from './apiKey'
@@ -58,8 +59,21 @@ export interface ContentBlock {
 }
 
 export async function runTurn(options: TurnOptions): Promise<void> {
-  if (loadSettings().aiMode === 'api-key') return runWithSdk(options)
-  return runWithCli(options)
+  // Windows can name the same folder two ways (C:\Users\BENIAM~1 and C:\Users\BeniaminZotescu).
+  // Claude's file tools use the long name, so the folders it may edit must be given that way too,
+  // or saving inside them is refused as "outside the working folder".
+  const resolved = { ...options, cwd: longPath(options.cwd), addDirs: options.addDirs.map(longPath) }
+  if (loadSettings().aiMode === 'api-key') return runWithSdk(resolved)
+  return runWithCli(resolved)
+}
+
+function longPath(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    // Not created yet: keep it as it is.
+    return path
+  }
 }
 
 async function runWithCli(options: TurnOptions): Promise<void> {

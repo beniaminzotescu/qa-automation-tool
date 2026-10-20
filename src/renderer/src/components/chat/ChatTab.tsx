@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { STAGES, type Chat, type ChatItem, type Project, type Stage } from '../../../../shared/api'
 import { AssistantMessage, TestResultCard, WorkGroup } from './ChatCards'
+import PastChats from './PastChats'
 
 const STAGE_LABELS: Record<Stage, string> = {
   understand: 'Understand',
@@ -23,6 +24,7 @@ type Block = { type: 'item'; item: ChatItem; index: number } | { type: 'work'; i
 export default function ChatTab({ project }: { project: Project }) {
   const [chat, setChat] = useState<Chat | null | undefined>(undefined)
   const [draft, setDraft] = useState('')
+  const [showPast, setShowPast] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -72,12 +74,18 @@ export default function ChatTab({ project }: { project: Project }) {
     <div className="chat">
       <div className="chat-top">
         <StageBar stage={chat?.stage ?? 'understand'} />
-        {chat && (
-          <button className="button link" onClick={startOver} disabled={busy}>
-            New conversation
+        <div className="chat-top-actions">
+          <button className="button link small" onClick={() => setShowPast(!showPast)} disabled={busy}>
+            Past chats
           </button>
-        )}
+          {chat && (
+            <button className="button link small" onClick={startOver} disabled={busy}>
+              New conversation
+            </button>
+          )}
+        </div>
       </div>
+      {showPast && <PastChats projectId={project.id} currentId={chat?.id ?? null} onClose={() => setShowPast(false)} />}
 
       <div className="chat-list" ref={listRef}>
         {items.length === 0 && (

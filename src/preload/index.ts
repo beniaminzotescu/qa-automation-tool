@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type AppApi, type ChatUpdate, type BrowserFrame, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent, type UpdateStatus } from '../shared/api'
+import { IPC, type AppApi, type ChatUpdate, type ApiState, type BrowserFrame, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent, type UpdateStatus } from '../shared/api'
 
 const api: AppApi = {
   getAiSettings: () => ipcRenderer.invoke(IPC.getAiSettings),
@@ -21,6 +21,9 @@ const api: AppApi = {
   sendMessage: (projectId, text) => ipcRenderer.invoke(IPC.sendMessage, projectId, text),
   stopChat: (projectId) => ipcRenderer.invoke(IPC.stopChat, projectId),
   discardChat: (projectId) => ipcRenderer.invoke(IPC.discardChat, projectId),
+  listChats: (projectId) => ipcRenderer.invoke(IPC.listChats, projectId),
+  openChat: (projectId, chatId) => ipcRenderer.invoke(IPC.openChat, projectId, chatId),
+  deleteChat: (projectId, chatId) => ipcRenderer.invoke(IPC.deleteChat, projectId, chatId),
   onChatUpdate: (listener) => {
     const handler = (_event: IpcRendererEvent, data: ChatUpdate): void => listener(data)
     ipcRenderer.on(IPC.chatUpdate, handler)
@@ -43,6 +46,8 @@ const api: AppApi = {
     ipcRenderer.on(IPC.prepareUpdate, handler)
     return () => ipcRenderer.removeListener(IPC.prepareUpdate, handler)
   },
+  getOnboardingDone: () => ipcRenderer.invoke(IPC.getOnboardingDone),
+  setOnboardingDone: (done) => ipcRenderer.invoke(IPC.setOnboardingDone, done),
   getUserType: () => ipcRenderer.invoke(IPC.getUserType),
   setUserType: (type) => ipcRenderer.invoke(IPC.setUserType, type),
 
@@ -75,6 +80,16 @@ const api: AppApi = {
     const handler = (_event: IpcRendererEvent, status: UpdateStatus): void => listener(status)
     ipcRenderer.on(IPC.updateStatus, handler)
     return () => ipcRenderer.removeListener(IPC.updateStatus, handler)
+  },
+
+  getApiState: (projectId) => ipcRenderer.invoke(IPC.getApiState, projectId),
+  sendApiRequest: (projectId, request) => ipcRenderer.invoke(IPC.sendApiRequest, projectId, request),
+  setApiCapturing: (projectId, on) => ipcRenderer.invoke(IPC.setApiCapturing, projectId, on),
+  clearApiCalls: (projectId) => ipcRenderer.invoke(IPC.clearApiCalls, projectId),
+  onApiState: (listener) => {
+    const handler = (_event: IpcRendererEvent, update: { projectId: string; state: ApiState }): void => listener(update)
+    ipcRenderer.on(IPC.apiState, handler)
+    return () => ipcRenderer.removeListener(IPC.apiState, handler)
   },
 
   getDrafts: (projectId) => ipcRenderer.invoke(IPC.getDrafts, projectId),

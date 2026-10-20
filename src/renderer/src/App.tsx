@@ -7,7 +7,7 @@ import AdminScreen from './screens/AdminScreen'
 import RepositoryScreen from './screens/RepositoryScreen'
 import KnowledgeScreen from './screens/KnowledgeScreen'
 import StudioScreen from './screens/StudioScreen'
-import WelcomeScreen from './screens/WelcomeScreen'
+import OnboardingScreen from './screens/OnboardingScreen'
 import UpdateBar from './components/UpdateBar'
 
 // The user's path: who are you → connect to Claude → preparing (automatic) → your environment
@@ -23,6 +23,7 @@ export default function App() {
   const [project, setProject] = useState<Project | null | undefined>(undefined)
   const [account, setAccount] = useState<Account | null | undefined>(undefined)
   const [userType, setUserType] = useState<UserType | null | undefined>(undefined)
+  const [onboardingDone, setOnboardingDone] = useState<boolean | undefined>(undefined)
 
   const recheckClaudeCode = useCallback(async () => {
     setClaudeCode(null)
@@ -38,16 +39,16 @@ export default function App() {
     reloadProject()
     reloadAccount()
     window.api.getUserType().then(setUserType)
+    window.api.getOnboardingDone().then(setOnboardingDone)
     Promise.all([window.api.getAiSettings(), recheckClaudeCode()]).then(([settings, status]) => {
       setAi(settings)
       if (!isReady(settings, status)) setScreen('settings')
     })
   }, [recheckClaudeCode, reloadProject, reloadAccount])
 
-  if (!ai || project === undefined || account === undefined || userType === undefined) {
+  if (!ai || project === undefined || account === undefined || userType === undefined || onboardingDone === undefined) {
     return <div className="loading">Loading…</div>
   }
-  if (!userType) return <WelcomeScreen onChosen={setUserType} />
 
   const claudeReady = isReady(ai, claudeCode)
 
@@ -65,6 +66,35 @@ export default function App() {
     if (!project) return <PreparingScreen onReady={reloadProject} onOpenRepository={() => setScreen('repository')} />
     if (!account) return <AccountScreen onSaved={reloadAccount} />
     return <StudioScreen project={project} />
+  }
+
+  if (!onboardingDone) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <span className="brand">QA-ASD-STE100</span>
+        </header>
+        <main className="content onboarding-page">
+          <OnboardingScreen
+            userType={userType}
+            ai={ai}
+            claudeCode={claudeCode}
+            claudeReady={claudeReady}
+            project={project}
+            account={account}
+            onUserType={setUserType}
+            onAiChange={setAi}
+            onRecheckClaudeCode={recheckClaudeCode}
+            onProjectChanged={reloadProject}
+            onAccountSaved={reloadAccount}
+            onFinished={() => {
+              setOnboardingDone(true)
+              setScreen('tests')
+            }}
+          />
+        </main>
+      </div>
+    )
   }
 
   return (

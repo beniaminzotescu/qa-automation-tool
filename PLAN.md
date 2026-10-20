@@ -100,6 +100,12 @@ that repository or that platform.
 | **S5** | Knowledge base: files and links (with notes) per framework connection; the assistant reads them and may open only those links | Built |
 | **S6** | **Translate to framework** on a passing test (assistant, in the framework copy, branch `feature/qa-<name>-<date>` from the base branch, TypeScript or Python in the team's style); verified by a run with the framework's own runner and the QA team's settings (Python: if installed); committed locally; **Send for review**: push with the tester's SSH key and open the prefilled pull-request page (Azure DevOps or GitHub; unverified ones need a confirmation); **Export for QA** (zip) | Built |
 | **S7** | Windows installer (electron-builder, per-user, unsigned for now); update check on start from GitHub Releases (public `beniaminzotescu/qa-automation-tool-releases`; source repo private) with Restart now / on close; Git and Node.js install buttons (winget) on Getting ready | Built |
+| **UX1** | Past chats (every conversation kept; reopen, continue, delete); first-time onboarding: You → Claude → Framework (clone with SSH key, or a local folder) → Getting ready → Your environment → Documentation → Studio | Built |
+| **API1** | Studio switch UI tests / API tests; API workbench (method, path relative to the API link, params, body with JSON check, headers; "use my login from the browser"); answer as status, time, size, folding JSON tree, headers; call history | Built |
+| **API2** | Capture API calls the website makes in the live browser (only its UI/API hosts; login headers never stored); click a call to open it in the workbench | Built |
+| **API3** | One-click checks on answers (value, status, time) as steps | |
+| **API4** | Assistant in API mode, draft API tests, Run, Your tests; translation into the framework's API style | |
+| **API5** | Swagger/OpenAPI endpoint list (optional) | |
 | **S8** | Technical-user mode, code signing, polish | |
 
 ## Risks and mitigations

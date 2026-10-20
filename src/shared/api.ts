@@ -182,6 +182,16 @@ export interface Chat {
   costUsd: number
 }
 
+/** One past conversation, for the list. */
+export interface ChatSummary {
+  id: string
+  /** The first message, shortened. */
+  title: string
+  createdAt: string
+  updatedAt: string
+  messages: number
+}
+
 export interface ChatUpdate {
   projectId: string
   chat: Chat | null
@@ -409,6 +419,57 @@ export interface UpdateStatus {
   percent: number
 }
 
+/** A header or query parameter row in the API workbench. */
+export interface KeyValue {
+  key: string
+  value: string
+  enabled: boolean
+}
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+
+export interface ApiRequest {
+  method: string
+  /** A path relative to the API link (e.g. /api/items), or a full address. */
+  url: string
+  query: KeyValue[]
+  headers: KeyValue[]
+  body: string
+  /** Send the tester's login from the live browser (its Authorization header and cookies). */
+  useSession: boolean
+}
+
+export interface ApiResponse {
+  /** 0 when there was no answer (see error). */
+  status: number
+  statusText: string
+  timeMs: number
+  size: number
+  headers: Record<string, string>
+  body: string
+  contentType: string
+  error: string | null
+}
+
+export interface ApiCall {
+  id: string
+  at: string
+  /** Sent from the workbench, or captured while the tester used the application. */
+  source: 'workbench' | 'captured'
+  request: ApiRequest
+  response: ApiResponse
+}
+
+export interface ApiState {
+  capturing: boolean
+  /** Newest first. */
+  calls: ApiCall[]
+  /** The live browser is running, so the tester's login can be used. */
+  sessionAvailable: boolean
+  /** Where relative paths go: the API link, or the UI link. */
+  baseUrl: string
+}
+
 export interface AppApi {
   getAiSettings(): Promise<AiSettings>
   setAiMode(mode: AiMode): Promise<AiSettings>
@@ -436,8 +497,12 @@ export interface AppApi {
   sendMessage(projectId: string, text: string): Promise<void>
   /** Stops Claude's current work. */
   stopChat(projectId: string): Promise<void>
-  /** Throws the test away: deletes the branch and its changes, clears the chat. */
+  /** Starts a new conversation; the current one stays in the past chats. */
   discardChat(projectId: string): Promise<void>
+  listChats(projectId: string): Promise<ChatSummary[]>
+  /** Reopens a past conversation. */
+  openChat(projectId: string, chatId: string): Promise<void>
+  deleteChat(projectId: string, chatId: string): Promise<ChatSummary[]>
   onChatUpdate(listener: (update: ChatUpdate) => void): () => void
 
   /** A screenshot or video from a test run, as a data: URL the UI can show. */
@@ -463,6 +528,9 @@ export interface AppApi {
   /** Installs Git or Node.js with Windows' own installer (winget). */
   installTool(tool: Tool): Promise<{ ok: boolean; message: string }>
 
+  /** Whether the first-time setup is finished; existing setups count as finished. */
+  getOnboardingDone(): Promise<boolean>
+  setOnboardingDone(done: boolean): Promise<void>
   getUserType(): Promise<UserType | null>
   setUserType(type: UserType): Promise<void>
 
@@ -513,6 +581,13 @@ export interface AppApi {
   restartToUpdate(): Promise<void>
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
 
+  getApiState(projectId: string): Promise<ApiState>
+  sendApiRequest(projectId: string, request: ApiRequest): Promise<ApiCall>
+  /** While on, calls the website makes in the live browser are added to the list. */
+  setApiCapturing(projectId: string, on: boolean): Promise<void>
+  clearApiCalls(projectId: string): Promise<void>
+  onApiState(listener: (update: { projectId: string; state: ApiState }) => void): () => void
+
   /** Subscribes to output of long-running tasks. Returns an unsubscribe function. */
   onTaskOutput(listener: (event: TaskOutputEvent) => void): () => void
 }
@@ -533,6 +608,9 @@ export const IPC = {
   sendMessage: 'chat:send',
   stopChat: 'chat:stop',
   discardChat: 'chat:discard',
+  listChats: 'chat:list',
+  openChat: 'chat:open',
+  deleteChat: 'chat:delete',
   chatUpdate: 'chat:update',
   readAttachment: 'chat:readAttachment',
   getRepoConfig: 'repo:get',
@@ -546,6 +624,8 @@ export const IPC = {
   startPrepare: 'prepare:start',
   prepareUpdate: 'prepare:update',
   installTool: 'prepare:installTool',
+  getOnboardingDone: 'onboarding:get',
+  setOnboardingDone: 'onboarding:set',
   getUserType: 'user:getType',
   setUserType: 'user:setType',
   startBrowser: 'browser:start',
@@ -564,6 +644,11 @@ export const IPC = {
   getUpdateStatus: 'update:get',
   restartToUpdate: 'update:restart',
   updateStatus: 'update:status',
+  getApiState: 'api:get',
+  sendApiRequest: 'api:send',
+  setApiCapturing: 'api:capture',
+  clearApiCalls: 'api:clear',
+  apiState: 'api:state',
   getDrafts: 'drafts:get',
   runDraft: 'drafts:run',
   deleteDraft: 'drafts:delete',

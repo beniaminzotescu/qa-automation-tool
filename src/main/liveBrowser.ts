@@ -7,6 +7,7 @@ import { IPC, type BrowserInput, type BrowserNavigation, type BrowserState, type
 import { getAccount, getAccountPassword } from './account'
 import { quote, runCommand } from './process'
 import * as steps from './steps'
+import * as apiWorkbench from './apiWorkbench'
 
 // The live browser: one real Chromium, started by the app, with a persistent profile so the
 // tester stays logged in. The Studio shows it live (DevTools screencast) and passes the tester's
@@ -101,6 +102,7 @@ async function launch(): Promise<void> {
   }
 
   await steps.attachRecorder(context)
+  apiWorkbench.attachCapture(context)
   context.on('page', (newPage) => void showPage(newPage))
   context.on('close', () => {
     context = null
