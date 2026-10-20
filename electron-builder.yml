@@ -1,0 +1,26 @@
+# Windows installer and updates for QA-ASD-STE100.
+# Build:   npm run dist      (installer in dist/)
+# Release: set GH_TOKEN, then npm run release (uploads to GitHub Releases; the app updates from there)
+appId: com.qa-asd-ste100.app
+productName: QA-ASD-STE100
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+# These run as separate programs, so they must not stay inside the packed archive.
+asarUnpack:
+  - node_modules/playwright-core/**
+  - node_modules/@anthropic-ai/claude-agent-sdk/**
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+publish:
+  provider: github
+  # The GitHub repository that holds the releases.
+  owner: beniaminzotescu
+  repo: qa-automation-tool
