@@ -3,6 +3,9 @@
 ; A (re)install from the installer starts clean: the app's data folder (settings, environment,
 ; SSH key, browser login, chats, recordings, tests, knowledge base, framework copy) is removed.
 ; In-app updates run the installer with --updated and keep everything.
+;
+; An update shows only the "Installing…" progress page: no questions, no Finish page, and the
+; app starts again by itself when it is done.
 
 !macro customInstall
   ${ifNot} ${isUpdated}
@@ -13,4 +16,41 @@
       SetShellVarContext all
     ${endIf}
   ${endIf}
+!macroend
+
+; An update keeps the existing kind of install ("only for me" or "all users") without asking.
+!macro customInstallMode
+  ${if} ${isUpdated}
+    ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${if} $0 != ""
+      StrCpy $isForceMachineInstall "1"
+    ${else}
+      StrCpy $isForceCurrentInstall "1"
+    ${endIf}
+  ${endIf}
+!macroend
+
+; The Finish page with "Run QA-ASD-STE100" for a new install; an update skips it and starts the app.
+!macro customFinishPage
+  Function StartApp
+    ${if} ${isUpdated}
+      StrCpy $1 "--updated"
+    ${else}
+      StrCpy $1 ""
+    ${endIf}
+    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+  FunctionEnd
+
+  Function SkipFinishWhenUpdating
+    ${if} ${isUpdated}
+      Call StartApp
+      ; Skipping the last page ends the installer.
+      Abort
+    ${endIf}
+  FunctionEnd
+
+  !define MUI_FINISHPAGE_RUN
+  !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipFinishWhenUpdating
+  !insertmacro MUI_PAGE_FINISH
 !macroend

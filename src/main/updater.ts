@@ -31,7 +31,10 @@ export function checkForUpdates(): void {
   autoUpdater.checkForUpdates().catch(() => update({ state: 'idle' }))
 }
 
-/** Closes the app, installs the downloaded version, and starts it again. */
+/**
+ * Closes the app and runs the installer visibly: it shows only its "Installing…" progress page
+ * (see build/installer.nsh), then starts the app again by itself.
+ */
 export function restartToUpdate(): void {
-  if (status.state === 'ready') autoUpdater.quitAndInstall(true, true)
+  if (status.state === 'ready') autoUpdater.quitAndInstall(false, true)
 }
