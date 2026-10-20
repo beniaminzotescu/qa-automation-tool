@@ -1235,3 +1235,34 @@ section.narrow,
 .install-tools {
   margin-top: 8px;
 }
+
+/* Update bar in the top bar */
+
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  margin-right: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.update-bar.ready {
+  color: var(--text);
+}
+
+.update-progress {
+  width: 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}

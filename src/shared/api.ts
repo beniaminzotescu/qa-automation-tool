@@ -402,6 +402,13 @@ export interface DraftsUpdate {
   runningDraftId: string | null
 }
 
+/** A newer version of the app: downloading in the background, or ready to install. */
+export interface UpdateStatus {
+  state: 'idle' | 'downloading' | 'ready'
+  version: string | null
+  percent: number
+}
+
 export interface AppApi {
   getAiSettings(): Promise<AiSettings>
   setAiMode(mode: AiMode): Promise<AiSettings>
@@ -502,6 +509,10 @@ export interface AppApi {
   exportDraft(projectId: string, draftId: string): Promise<SendResult>
   onDraftsUpdate(listener: (update: DraftsUpdate) => void): () => void
 
+  getUpdateStatus(): Promise<UpdateStatus>
+  restartToUpdate(): Promise<void>
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
+
   /** Subscribes to output of long-running tasks. Returns an unsubscribe function. */
   onTaskOutput(listener: (event: TaskOutputEvent) => void): () => void
 }
@@ -550,6 +561,9 @@ export const IPC = {
   updateKnowledgeNote: 'knowledge:note',
   removeKnowledgeItem: 'knowledge:remove',
   knowledgeUpdate: 'knowledge:update',
+  getUpdateStatus: 'update:get',
+  restartToUpdate: 'update:restart',
+  updateStatus: 'update:status',
   getDrafts: 'drafts:get',
   runDraft: 'drafts:run',
   deleteDraft: 'drafts:delete',

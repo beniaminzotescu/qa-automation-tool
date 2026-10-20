@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type AppApi, type ChatUpdate, type BrowserFrame, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent } from '../shared/api'
+import { IPC, type AppApi, type ChatUpdate, type BrowserFrame, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent, type UpdateStatus } from '../shared/api'
 
 const api: AppApi = {
   getAiSettings: () => ipcRenderer.invoke(IPC.getAiSettings),
@@ -68,6 +68,14 @@ const api: AppApi = {
   addKnowledgeLink: (projectId, url, note) => ipcRenderer.invoke(IPC.addKnowledgeLink, projectId, url, note),
   updateKnowledgeNote: (projectId, id, note) => ipcRenderer.invoke(IPC.updateKnowledgeNote, projectId, id, note),
   removeKnowledgeItem: (projectId, id) => ipcRenderer.invoke(IPC.removeKnowledgeItem, projectId, id),
+
+  getUpdateStatus: () => ipcRenderer.invoke(IPC.getUpdateStatus),
+  restartToUpdate: () => ipcRenderer.invoke(IPC.restartToUpdate),
+  onUpdateStatus: (listener) => {
+    const handler = (_event: IpcRendererEvent, status: UpdateStatus): void => listener(status)
+    ipcRenderer.on(IPC.updateStatus, handler)
+    return () => ipcRenderer.removeListener(IPC.updateStatus, handler)
+  },
 
   getDrafts: (projectId) => ipcRenderer.invoke(IPC.getDrafts, projectId),
   runDraft: (projectId, draftId) => ipcRenderer.invoke(IPC.runDraft, projectId, draftId),

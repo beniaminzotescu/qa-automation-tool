@@ -13,7 +13,7 @@ import { getPrepareStatus, installTool, startPrepare } from './prepare'
 import { getRepoConfig, saveRepoConfig, useLocalFolder } from './repo'
 import { createSshKey, getSshKey, importSshKey, removeSshKey } from './sshKey'
 import * as liveBrowser from './liveBrowser'
-import { checkForUpdates } from './updater'
+import { checkForUpdates, getUpdateStatus, restartToUpdate } from './updater'
 import * as steps from './steps'
 import * as drafts from './drafts'
 import * as knowledge from './knowledge'
@@ -32,6 +32,8 @@ function createWindow(): void {
     minHeight: 720,
     show: false,
     title: 'QA-ASD-STE100',
+    // The installed app gets its icon from the program file; this is for running from source.
+    ...(app.isPackaged ? {} : { icon: join(__dirname, '../../build/icon.png') }),
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -142,6 +144,8 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.removeKnowledgeItem, (_event, id: string, itemId: string) => knowledge.removeItem(id, itemId))
 
+  ipcMain.handle(IPC.getUpdateStatus, () => getUpdateStatus())
+  ipcMain.handle(IPC.restartToUpdate, () => restartToUpdate())
   ipcMain.handle(IPC.getDrafts, (_event, id: string) => drafts.getDraftsUpdate(id))
   // Not awaited: a run can take minutes. Progress goes out as drafts and chat updates.
   ipcMain.handle(IPC.runDraft, (_event, id: string, draftId: string) => {

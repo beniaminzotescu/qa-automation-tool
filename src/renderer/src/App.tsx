@@ -8,6 +8,7 @@ import RepositoryScreen from './screens/RepositoryScreen'
 import KnowledgeScreen from './screens/KnowledgeScreen'
 import StudioScreen from './screens/StudioScreen'
 import WelcomeScreen from './screens/WelcomeScreen'
+import UpdateBar from './components/UpdateBar'
 
 // The user's path: who are you → connect to Claude → preparing (automatic) → your environment
 // → the Studio. The framework itself is never shown; the QA team uses the Admin screen.
@@ -72,6 +73,7 @@ export default function App() {
         <button className="brand" onClick={() => setScreen('tests')}>
           QA-ASD-STE100
         </button>
+        <UpdateBar />
         <nav>
           <NavLink current={screen} screen="tests" onSelect={setScreen}>
             Studio

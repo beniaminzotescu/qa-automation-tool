@@ -1,10 +1,13 @@
 # Windows installer and updates for QA-ASD-STE100.
-# Build:   npm run dist      (installer in dist/)
+# Icons:   npm run icons     (draws build/icon.png and the installer images)
+# Build:   npm run dist      (installers in dist/)
 # Release: set GH_TOKEN, then npm run release (uploads to GitHub Releases; the app updates from there)
 appId: com.qa-asd-ste100.app
 productName: QA-ASD-STE100
+copyright: Copyright © 2026 Beniamin Zotescu
 directories:
   output: dist
+  buildResources: build
 files:
   - out/**
   - package.json
@@ -12,13 +15,38 @@ files:
 asarUnpack:
   - node_modules/playwright-core/**
   - node_modules/@anthropic-ai/claude-agent-sdk/**
+
 win:
-  target: nsis
-nsis:
-  oneClick: true
+  icon: build/icon.png
+  # The small installer people get: it downloads the app (with a progress bar), then installs it.
+  # The full installer for computers without internet: npm run dist:offline (not published, so the
+  # two installers' update files don't overwrite each other in a release).
+  target:
+    - target: nsis-web
+      arch: x64
+
+# Shared by both installers: a wizard, not a one-click install.
+nsis: &installer
+  oneClick: false
+  # The wizard asks "Only for me" or "Anyone who uses this computer" (the second asks Windows for permission).
   perMachine: false
-  createDesktopShortcut: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
   createStartMenuShortcut: true
+  shortcutName: QA-ASD-STE100
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/installerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
+  runAfterFinish: true
+  # Uninstalling keeps the user's tests and settings (in %APPDATA%), unless they reinstall fresh.
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Offline-Setup-${version}.${ext}
+
+nsisWeb:
+  <<: *installer
+  artifactName: ${productName}-Setup-${version}.${ext}
+
 publish:
   provider: github
   # The GitHub repository that holds the releases.
