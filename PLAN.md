@@ -99,7 +99,7 @@ that repository or that platform.
 | **S4** | Draft tests: the assistant writes them in the tester's drafts folder (simple Playwright, fixture connected to the live browser), runs them live, keeps them ("Your tests" with Run / Remove, last result); the framework is only read | Built |
 | **S5** | Knowledge base: files and links (with notes) per framework connection; the assistant reads them and may open only those links | Built |
 | **S6** | **Translate to framework** on a passing test (assistant, in the framework copy, branch `feature/qa-<name>-<date>` from the base branch, TypeScript or Python in the team's style); verified by a run with the framework's own runner and the QA team's settings (Python: if installed); committed locally; **Send for review**: push with the tester's SSH key and open the prefilled pull-request page (Azure DevOps or GitHub; unverified ones need a confirmation); **Export for QA** (zip) | Built |
-| **S7** | Windows installer (electron-builder, per-user, unsigned for now); update check on start from GitHub Releases (`beniaminzotescu/qa-automation-tool`) with Restart now / on close; Git and Node.js install buttons (winget) on Getting ready | Built |
+| **S7** | Windows installer (electron-builder, per-user, unsigned for now); update check on start from GitHub Releases (public `beniaminzotescu/qa-automation-tool-releases`; source repo private) with Restart now / on close; Git and Node.js install buttons (winget) on Getting ready | Built |
 | **S8** | Technical-user mode, code signing, polish | |
 
 ## Risks and mitigations

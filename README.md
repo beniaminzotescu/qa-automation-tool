@@ -34,7 +34,7 @@ via Electron `safeStorage` and kept in `%APPDATA%\test-framework-builder\secrets
   `dist/QA-ASD-STE100-Offline-Setup-<version>.exe`.
 - Not code-signed yet: on first install Windows shows "Windows protected your PC"; click **More info → Run anyway**.
 - `npm run icons` redraws the icon and installer images in `build/` from `scripts/make-icons.mjs`.
-- The installed app checks GitHub Releases (`beniaminzotescu/qa-automation-tool`, see `electron-builder.yml`) when it starts,
+- The installed app checks GitHub Releases of the public repository `beniaminzotescu/qa-automation-tool-releases` (see `electron-builder.yml`; the source repository stays private) when it starts,
   downloads a newer version in the background and offers **Restart now**.
 
 To publish a new version:
@@ -43,4 +43,4 @@ To publish a new version:
 3. `npm run release`. It uploads the web installer, the app package (`.nsis.7z`) and `latest.yml` to a draft release on GitHub.
 4. On GitHub, publish the draft release. Installed apps pick it up the next time they start.
 
-The repository must be public for the app to see releases without a token.
+The releases repository `qa-automation-tool-releases` must be public (it holds only installers and update files). The source repository stays private. The `GH_TOKEN` needs **Contents: Read and write** on the releases repository.

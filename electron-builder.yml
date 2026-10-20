@@ -49,6 +49,7 @@ nsisWeb:
 
 publish:
   provider: github
-  # The GitHub repository that holds the releases.
+  # A separate PUBLIC repository holds only the installers and update files, so the source
+  # (beniaminzotescu/qa-automation-tool) stays private and the app needs no token to update.
   owner: beniaminzotescu
-  repo: qa-automation-tool
+  repo: qa-automation-tool-releases
