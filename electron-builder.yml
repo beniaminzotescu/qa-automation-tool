@@ -39,8 +39,10 @@ nsis: &installer
   uninstallerSidebar: build/installerSidebar.bmp
   installerHeader: build/installerHeader.bmp
   runAfterFinish: true
-  # Uninstalling keeps the user's tests and settings (in %APPDATA%), unless they reinstall fresh.
-  deleteAppDataOnUninstall: false
+  # A reinstall starts clean (build/installer.nsh); uninstalling removes the app's data too.
+  # In-app updates keep everything: both steps skip it when the installer runs as an update.
+  include: build/installer.nsh
+  deleteAppDataOnUninstall: true
   artifactName: ${productName}-Offline-Setup-${version}.${ext}
 
 nsisWeb:

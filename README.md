@@ -29,7 +29,10 @@ via Electron `safeStorage` and kept in `%APPDATA%\test-framework-builder\secrets
 
 - `npm run dist` builds the installer people get: `dist/nsis-web/QA-ASD-STE100-Setup-<version>.exe` (under 1 MB). It
   shows a wizard (only for me / all users, install folder), downloads the app from the GitHub release with a progress
-  bar, installs it, and offers to start it. If the app is already installed, it updates it and keeps the user's data.
+  bar, installs it, and offers to start it.
+- **Running the installer always starts clean**: it removes the app's data (settings, environment, SSH key, browser
+  login, chats, recordings, tests, knowledge base, framework copy). Uninstalling removes it too. **In-app updates keep
+  everything.** (See `build/installer.nsh`.)
 - `npm run dist:offline` builds the full installer for computers without internet:
   `dist/QA-ASD-STE100-Offline-Setup-<version>.exe`.
 - Not code-signed yet: on first install Windows shows "Windows protected your PC"; click **More info → Run anyway**.
