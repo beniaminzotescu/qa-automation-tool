@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { getApiKey } from './apiKey'
@@ -12,6 +13,7 @@ import { loadSettings } from './settings'
 export interface McpServer {
   command: string
   args: string[]
+  env?: Record<string, string>
 }
 
 export interface TurnOptions {
@@ -65,6 +67,61 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   const resolved = { ...options, cwd: longPath(options.cwd), addDirs: options.addDirs.map(longPath) }
   if (loadSettings().aiMode === 'api-key') return runWithSdk(resolved)
   return runWithCli(resolved)
+}
+
+export interface TaskOptions {
+  /** Folder for the task's own files (instructions, settings); also where Claude starts. */
+  dir: string
+  /** Folders Claude may read. */
+  readDirs: string[]
+  prompt: string
+  systemPrompt: string
+  signal?: AbortSignal
+}
+
+/**
+ * A one-off job for Claude that only reads files and answers (no browser, no edits, no commands),
+ * e.g. turning a document into test cases. Returns Claude's final answer.
+ */
+export async function runTask(options: TaskOptions): Promise<string> {
+  mkdirSync(options.dir, { recursive: true })
+  const systemPromptFile = join(options.dir, 'system-prompt.md')
+  const settingsFile = join(options.dir, 'claude-settings.json')
+  const mcpConfigFile = join(options.dir, 'mcp.json')
+  const allow = ['Read', 'Glob', 'Grep']
+  const deny = ['Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'AskUserQuestion']
+  writeFileSync(systemPromptFile, options.systemPrompt)
+  writeFileSync(settingsFile, JSON.stringify({ permissions: { allow, deny } }, null, 2))
+  writeFileSync(mcpConfigFile, JSON.stringify({ mcpServers: {} }))
+
+  let result: string | null = null
+  let failure: string | null = null
+  const texts: string[] = []
+  await runTurn({
+    cwd: options.dir,
+    addDirs: options.readDirs,
+    prompt: options.prompt,
+    sessionId: null,
+    appendSystemPrompt: options.systemPrompt,
+    systemPromptFile,
+    settingsFile,
+    mcpConfigFile,
+    mcpServers: {},
+    allow,
+    deny,
+    env: {},
+    signal: options.signal ?? new AbortController().signal,
+    onMessage: (message) => {
+      if (message.type === 'result') {
+        if (message.is_error) failure = message.result ?? message.subtype ?? 'unknown error'
+        else result = message.result ?? null
+      } else if (message.type === 'assistant' && Array.isArray(message.message?.content)) {
+        for (const block of message.message.content) if (block.type === 'text' && block.text) texts.push(block.text)
+      }
+    }
+  })
+  if (failure) throw new Error(`The assistant stopped with an error: ${failure}`)
+  return result ?? texts.join('\n\n')
 }
 
 function longPath(path: string): string {

@@ -13,6 +13,8 @@ interface RunOptions {
   timeoutMs?: number
   env?: Record<string, string>
   onOutput?(chunk: string): void
+  /** Stops the command (and everything it started) when aborted. */
+  signal?: AbortSignal
 }
 
 /** Output kept for "Show details". The full output still streams through onOutput. */
@@ -43,12 +45,20 @@ export function runCommand(command: string, options: RunOptions): Promise<Comman
         }, options.timeoutMs)
       : null
 
+    const stop = (): void => {
+      output += '\n[Stopped.]'
+      killTree(child.pid)
+    }
+    options.signal?.addEventListener('abort', stop)
+
     child.on('error', (error) => {
       if (timer) clearTimeout(timer)
+      options.signal?.removeEventListener('abort', stop)
       resolve({ code: -1, output: output + error.message })
     })
     child.on('close', (code) => {
       if (timer) clearTimeout(timer)
+      options.signal?.removeEventListener('abort', stop)
       resolve({ code: code ?? -1, output })
     })
   })

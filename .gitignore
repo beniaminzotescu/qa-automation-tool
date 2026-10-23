@@ -4,3 +4,12 @@ dist/
 *.log
 .env
 *.tsbuildinfo
+smoke-output/
+brag-output/
+.claude/settings.local.json
+
+# Local dev tooling (not needed to run the app)
+CLAUDE.md
+.claude/
+*.test.ts
+scripts/smoke.mjs

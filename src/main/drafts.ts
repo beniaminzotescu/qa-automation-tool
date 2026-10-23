@@ -2,9 +2,10 @@ import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { IPC, type Draft, type DraftsUpdate, type TestReport, type Translation } from '../shared/api'
+import { IPC, type Draft, type DraftRun, type DraftsUpdate, type TestReport, type Translation } from '../shared/api'
 import { getAccount, getAccountPassword } from './account'
 import { getDebuggingEndpoint, startBrowser } from './liveBrowser'
+import { playwrightTestCli, unpackedModules } from './nodeRunner'
 import { freshPath, quote, runCommand } from './process'
 import { readTestReport } from './testReport'
 
@@ -12,30 +13,34 @@ import { readTestReport } from './testReport'
 // tests. They run in the live browser (through its debugging port), so the tester watches them.
 // The framework is not needed for a draft; strong drafts are translated into it later.
 
-// The test runner matches the app's own Playwright version.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const PLAYWRIGHT_VERSION: string = require('playwright-core/package.json').version
-
 const runnerDir = (): string => join(app.getPath('userData'), 'runner')
+const runnerBin = (): string => join(runnerDir(), 'bin')
 export const draftsDir = (projectId: string): string => join(runnerDir(), 'drafts', projectId)
 const registryFile = (projectId: string): string => join(draftsDir(projectId), 'drafts.json')
 
-let runningDraft: { projectId: string; draftId: string } | null = null
+/** The drafts running in the live browser now; one run at a time, it shares the tester's browser. */
+let running: { projectId: string; draftIds: string[]; controller: AbortController } | null = null
+/** Runs kept per test; older ones (and their screenshots) are removed. */
+const KEPT_RUNS = 10
+/** Each run's screenshots and videos, so a new run doesn't overwrite the ones in the history. */
+const runsDir = (projectId: string): string => join(draftsDir(projectId), 'runs')
 
-/** Installs the test runner (Playwright Test) once, next to the drafts, so drafts can import it. */
-export async function ensureRunner(onProgress?: (message: string) => void): Promise<void> {
-  const installed = join(runnerDir(), 'node_modules', '@playwright', 'test', 'package.json')
-  const current = existsSync(installed) ? (JSON.parse(readFileSync(installed, 'utf8')) as { version: string }).version : null
-  if (current === PLAYWRIGHT_VERSION) return
-
-  onProgress?.('Preparing the test runner. This takes a minute, only the first time…')
-  mkdirSync(runnerDir(), { recursive: true })
-  writeFileSync(
-    join(runnerDir(), 'package.json'),
-    JSON.stringify({ name: 'qa-asd-ste100-runner', private: true, dependencies: { '@playwright/test': PLAYWRIGHT_VERSION } }, null, 2)
-  )
-  const result = await runCommand('npm install --no-audit --no-fund', { cwd: runnerDir(), timeoutMs: 10 * 60_000 })
-  if (result.code !== 0) throw new Error('The test runner could not be installed. Check your internet connection.')
+/**
+ * The test runner (Playwright Test) comes with the app. This writes the `playwright` command the
+ * assistant and the app run drafts with: for cmd/PowerShell and for Git Bash (Claude's shell).
+ * Drafts find `@playwright/test` through NODE_PATH (see draftEnv).
+ */
+export function ensureRunner(): void {
+  // Earlier versions installed the runner here with npm. Node would find that copy before NODE_PATH.
+  for (const old of ['node_modules', 'package.json', 'package-lock.json']) {
+    rmSync(join(runnerDir(), old), { recursive: true, force: true })
+  }
+  mkdirSync(runnerBin(), { recursive: true })
+  const electron = process.execPath
+  const cli = playwrightTestCli()
+  writeFileSync(join(runnerBin(), 'playwright.cmd'), `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${electron}" "${cli}" %*\r\n`)
+  const slashes = (path: string): string => path.replace(/\\/g, '/')
+  writeFileSync(join(runnerBin(), 'playwright'), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${slashes(electron)}" "${slashes(cli)}" "$@"\n`)
 }
 
 /** The drafts folder with the app's own config and fixtures (rewritten, so they stay current). */
@@ -51,7 +56,9 @@ export function ensureDraftsProject(projectId: string): string {
 export function draftEnv(reportFile?: string): Record<string, string> {
   const account = getAccount()
   return {
-    PATH: freshPath(),
+    // The app's own `playwright` command first, and the app's Playwright packages for the drafts' imports.
+    PATH: `${runnerBin()};${freshPath()}`,
+    NODE_PATH: unpackedModules(),
     FORCE_COLOR: '0',
     QA_CDP_ENDPOINT: getDebuggingEndpoint() ?? '',
     QA_UI_URL: account?.appUrl ?? '',
@@ -97,30 +104,71 @@ export function getDraftsUpdate(projectId: string): DraftsUpdate {
   return {
     projectId,
     drafts: listDrafts(projectId),
-    runningDraftId: runningDraft?.projectId === projectId ? runningDraft.draftId : null
+    runningDraftIds: running?.projectId === projectId ? running.draftIds : []
   }
 }
 
 /** From the assistant's "ready" card: the test's name and summary. */
-export function registerDraft(projectId: string, info: { name: string; file: string; summary: string }): void {
+export function registerDraft(projectId: string, info: { name: string; file: string; summary: string }): string {
   const drafts = listDrafts(projectId)
   const file = `tests/${basename(info.file)}`
   const existing = drafts.find((draft) => basename(draft.file) === basename(file))
   const now = new Date().toISOString()
+  const id = existing?.id ?? randomUUID()
   if (existing) Object.assign(existing, { name: info.name || existing.name, summary: info.summary || existing.summary, updatedAt: now })
-  else drafts.push({ id: randomUUID(), name: info.name || nameFromFile(file), file, summary: info.summary, createdAt: now, updatedAt: now, lastRun: null })
+  else drafts.push({ id, name: info.name || nameFromFile(file), file, summary: info.summary, createdAt: now, updatedAt: now, lastRun: null })
   writeRegistry(projectId, drafts)
+  return id
 }
 
-/** Stores the latest result of each draft that was in a run. */
-export function recordRun(projectId: string, report: TestReport): void {
+/** Stores the result of each draft that was in a run: the latest, and in its history. */
+export function recordRun(projectId: string, report: TestReport, by: DraftRun['by'] = 'assistant', runId: string = randomUUID()): void {
   const drafts = listDrafts(projectId)
+  const at = new Date().toISOString()
   for (const draft of drafts) {
     const tests = report.tests.filter((test) => basename(test.file) === basename(draft.file))
     if (tests.length === 0) continue
-    const failed = tests.filter((test) => test.status === 'failed').length
-    draft.lastRun = { status: failed ? 'failed' : 'passed', at: new Date().toISOString(), passed: tests.length - failed, failed }
+    const count = (status: string): number => tests.filter((test) => test.status === status).length
+    const failed = count('failed')
+    draft.lastRun = { status: failed ? 'failed' : 'passed', at, passed: tests.length - failed, failed }
+    const own: TestReport = {
+      passed: count('passed'),
+      failed,
+      flaky: count('flaky'),
+      skipped: count('skipped'),
+      durationMs: tests.reduce((sum, test) => sum + test.durationMs, 0),
+      tests
+    }
+    draft.runs = [{ id: runId, at, by, report: own }, ...(draft.runs ?? [])].slice(0, KEPT_RUNS)
   }
+  writeRegistry(projectId, drafts)
+  removeOldRuns(projectId, drafts)
+}
+
+/** Run folders no kept run points to. */
+function removeOldRuns(projectId: string, drafts: Draft[]): void {
+  if (!existsSync(runsDir(projectId))) return
+  const kept = new Set(drafts.flatMap((draft) => (draft.runs ?? []).map((run) => run.id)))
+  for (const name of readdirSync(runsDir(projectId))) {
+    if (!kept.has(name)) rmSync(join(runsDir(projectId), name), { recursive: true, force: true })
+  }
+}
+
+export function setDraftPersonal(projectId: string, draftId: string, personal: boolean): void {
+  updateDraft(projectId, draftId, { personal })
+}
+
+export function renameDraft(projectId: string, draftId: string, name: string): void {
+  const clean = name.trim()
+  if (!clean) throw new Error('A test needs a name.')
+  updateDraft(projectId, draftId, { name: clean })
+}
+
+function updateDraft(projectId: string, draftId: string, changes: Partial<Draft>): void {
+  const drafts = listDrafts(projectId)
+  const draft = drafts.find((d) => d.id === draftId)
+  if (!draft) throw new Error('This test no longer exists.')
+  Object.assign(draft, changes, { updatedAt: new Date().toISOString() })
   writeRegistry(projectId, drafts)
 }
 
@@ -137,38 +185,58 @@ export function deleteDraft(projectId: string, draftId: string): void {
   const draft = drafts.find((d) => d.id === draftId)
   if (!draft) return
   rmSync(join(draftsDir(projectId), draft.file), { force: true })
-  writeRegistry(
-    projectId,
-    drafts.filter((d) => d.id !== draftId)
-  )
+  const remaining = drafts.filter((d) => d.id !== draftId)
+  writeRegistry(projectId, remaining)
+  removeOldRuns(projectId, remaining)
 }
 
 /** Runs one draft in the live browser. Returns its report, or null when nothing ran. */
-export async function runDraft(projectId: string, draftId: string): Promise<TestReport | null> {
-  if (runningDraft) throw new Error('A test is already running.')
-  const draft = listDrafts(projectId).find((d) => d.id === draftId)
-  if (!draft) throw new Error('This test no longer exists.')
+export function runDraft(projectId: string, draftId: string): Promise<TestReport | null> {
+  return runDrafts(projectId, [draftId])
+}
 
-  runningDraft = { projectId, draftId }
+/**
+ * Runs drafts one after another in the live browser, in one go. Returns the report, or null when
+ * nothing ran (or the run was stopped before any test finished).
+ */
+export async function runDrafts(projectId: string, draftIds: string[]): Promise<TestReport | null> {
+  if (running) throw new Error('Tests are already running. Wait until they are done, or press Stop.')
+  const all = listDrafts(projectId)
+  const chosen = draftIds.map((id) => all.find((d) => d.id === id)).filter((d): d is Draft => Boolean(d))
+  if (chosen.length === 0) throw new Error('These tests no longer exist.')
+
+  running = { projectId, draftIds: chosen.map((d) => d.id), controller: new AbortController() }
   writeRegistry(projectId, listDrafts(projectId))
   try {
-    await ensureRunner()
+    ensureRunner()
     await startBrowser()
     const dir = ensureDraftsProject(projectId)
+    const runId = randomUUID()
     const reportFile = join(dir, 'last-run.json')
     rmSync(reportFile, { force: true })
-    await runCommand(`npx playwright test ${quote(draft.file)} --reporter=line,json`, {
+    const files = chosen.map((d) => quote(d.file)).join(' ')
+    await runCommand(`playwright test ${files} --reporter=line,json --output ${quote(join(runsDir(projectId), runId))}`, {
       cwd: dir,
-      timeoutMs: 10 * 60_000,
-      env: draftEnv(reportFile)
+      timeoutMs: 30 * 60_000,
+      env: draftEnv(reportFile),
+      signal: running.controller.signal
     })
     const report = readTestReport(reportFile)
-    if (report) recordRun(projectId, report)
+    if (report) recordRun(projectId, report, 'tester', runId)
     return report
   } finally {
-    runningDraft = null
+    running = null
     writeRegistry(projectId, listDrafts(projectId))
   }
+}
+
+/** Stops the tests running now. */
+export function stopDrafts(projectId: string): void {
+  if (running?.projectId === projectId) running.controller.abort()
+}
+
+export function isDraftRunning(): boolean {
+  return running !== null
 }
 
 function nameFromFile(file: string): string {
@@ -178,7 +246,7 @@ function nameFromFile(file: string): string {
 
 // --- Files the app writes into the drafts folder -------------------------------------------
 
-const CONFIG = `// Written by QA-ASD-STE100. Draft tests run in the app's live browser.
+const CONFIG = `// Written by QA-STE100-Studio. Draft tests run in the app's live browser.
 import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
@@ -197,7 +265,7 @@ export default defineConfig({
 })
 `
 
-const FIXTURES = `// Written by QA-ASD-STE100. Draft tests import { test, expect } from '../fixtures'.
+const FIXTURES = `// Written by QA-STE100-Studio. Draft tests import { test, expect } from '../fixtures'.
 // "page" is a new tab in the app's live browser, with the tester's session (already logged in).
 // The tester's environment is in process.env: QA_UI_URL, QA_API_URL, QA_USERNAME, QA_PASSWORD.
 import { test as base, chromium, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'

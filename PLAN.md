@@ -1,4 +1,4 @@
-# QA-ASD-STE100 — Plan
+# QA-STE100-Studio — Plan
 
 An all-in-one **test generator** for testers. The tester works in one screen: a **chat**, a
 **live browser** that shows every action as it happens, and **action buttons**. They build automated
@@ -61,8 +61,13 @@ that repository or that platform.
 - **Login:** the first time, the tester logs in by hand in the live browser. The browser profile is kept per tester, so the tester stays logged in. Nothing here is platform-specific.
 - Drafts belong to the tester and run against their own tenant.
 
+## Test cases
+- The team's test cases are the **baseline** for recording tests. They come from a file (Excel, CSV, Word, PDF, text), pasted text, or **Azure DevOps Test Plans** (plan → suite, with a personal access token). The assistant reads files and pasted text into cases (title, preconditions, steps with expected results); Azure DevOps steps are read directly.
+- **Suggest more:** the assistant proposes missing cases (negative, limits, permissions, flows) from the existing cases and the knowledge base, or variations of one case. Every new case arrives as a proposal the tester keeps or discards.
+- Cases can be edited (title, preconditions, steps added, removed, reordered) and opened in the Studio.
+
 ## Knowledge base
-- Per framework connection: **files** (PDF, Word, Markdown, text, images) and **links** about the platform under test.
+- Per framework connection: **files** (PDF, Word, Excel, Markdown, text, images; Word and Excel get a text copy the assistant reads) and **links** about the platform under test.
 - Files are copied into the app's data folder. Claude may read them, and may open only the links in the knowledge base (plus the links added to a test).
 - Pages that need a login can't be read through a link: the app says so and suggests uploading the page as a file.
 - Shown as a simple list: add a file, add a link, remove, with a short note of what each one is.
@@ -70,7 +75,7 @@ that repository or that platform.
 ## First start
 1. **Who are you?** *Manual tester (no coding)* or *Technical user*. (The technical mode is designed later; for now both get the non-technical Studio.)
 2. **Connect to Claude:** Claude Code on this computer, or an API key (already built).
-3. **Preparing:** automatic. Clone the framework (read-only), make the app's working copy, install the browser. Admins set the repository link and token, or a local folder (already built).
+3. **Preparing:** automatic and short: clone the framework (read-only) and make the app's working copy. Only Git is needed. The live browser downloads in the background from the first screen; the framework's own packages and browser install in the background afterwards (needed only for translation).
 4. **Your environment:** application link, username, password, then log in once in the live browser.
 5. **Knowledge base:** optional; add documentation now or later.
 
@@ -82,6 +87,8 @@ that repository or that platform.
 | **Recorder** | A script injected into every page of the live browser (Playwright `addInitScript` + binding). Same element descriptions as now: role, name, label, test id, text, CSS path. |
 | **Claude in the browser** | Playwright MCP connected to the live browser over CDP (`--cdp-endpoint`), so Claude's actions are visible. Claude's actions are reported as steps. |
 | **Draft tests** | A small app-owned Playwright project (in the app's data folder) with a fixture that connects to the live browser (`connectOverCDP`). Claude writes the draft there in a simple, standard style. The app runs it and shows the result in the chat. |
+| **Bundled tools** | Playwright Test, Playwright MCP and the browser installer ship inside the app and run on its own Electron in Node mode (`ELECTRON_RUN_AS_NODE`), so drafts need no Node.js or npm. Drafts find `@playwright/test` through `NODE_PATH`; a `playwright` command in the runner folder serves the assistant and the app. |
+| **Test case in the Studio** | Each open case has its own step log; every recorded action belongs to a case step. "Do it for me" asks Claude to do one step (recorded as Automated). "Make the test" sends the case plus the recording grouped by step; the case is the approved plan. The ready card links the draft to the case. |
 | **Translation** | Claude, in the framework's working copy, with its `CLAUDE.md`, rules and skills, existing tests as examples, and the draft and its recording as input. Credentials are mapped by Claude into what the framework expects (only in the local working copy, never exported). |
 | **Claude** | Claude Code on this computer, or the Agent SDK with an API key (built). Plain-language instructions for non-technical users (built). |
 | **Repository** | Read-only clone with a token, or a local folder; the app works in its own git worktree (built). |
@@ -92,7 +99,7 @@ that repository or that platform.
 |---|---|---|
 | M0–M1, R1 | Claude connection, Admin (repo link + read-only token or local folder), automatic preparing, setup checks | Built (R1's platform-specific login and `.env` mapping are removed in S1) |
 | R2 | Recorder in an in-app panel, review, hand-off to the chat | Built; replaced by S1–S3 (its recorder script and step list are reused) |
-| **S1** | **Studio layout** (chat, live browser, actions); live browser with persistent profile, screencast and input; "Your environment" (link, username, password; login by hand); first-start question technical / non-technical; app name QA-ASD-STE100, 1920×1080 window | Built (Claude already uses the live browser over CDP; the action buttons become active in S2) |
+| **S1** | **Studio layout** (chat, live browser, actions); live browser with persistent profile, screencast and input; "Your environment" (link, username, password; login by hand); first-start question technical / non-technical; app name QA-STE100-Studio, 1920×1080 window | Built (Claude already uses the live browser over CDP; the action buttons become active in S2) |
 | **S2** | Recorder in the live browser; action buttons (record, check text, check visible, undo, clear); steps panel; new steps go to Claude with the next message; "Make a test from these steps" | Built |
 | **R** | Repository section: local folder or clone (SSH key created in the app or imported, or HTTPS read-only token); SSH key shown for adding to Azure DevOps / GitHub | Built |
 | **S3** | Chat drives the live browser (Playwright MCP over CDP); recorded steps and chat combined; plan approval; tester input paused while Claude works, Stop on the browser; Claude's clicks highlighted | Built |
@@ -106,6 +113,14 @@ that repository or that platform.
 | **API3** | One-click checks on answers (value, status, time) as steps | |
 | **API4** | Assistant in API mode, draft API tests, Run, Your tests; translation into the framework's API style | |
 | **API5** | Swagger/OpenAPI endpoint list (optional) | |
+| **P1** | Fast onboarding: Getting ready = framework + working copy (Git only); live browser (headless shell only) downloads in the background with progress; Playwright Test and MCP bundled (no Node.js/npm for drafts); framework packages and browser install in the background, awaited before a translation | Built |
+| **TC1** | Test cases screen: import from a file (Excel/CSV/Word/PDF/text) or pasted text, read by the assistant into proposals; keep/discard; edit cases | Built |
+| **TC2** | Suggest more test cases (whole set, or variations of one) from the cases and the knowledge base | Built |
+| **TC3** | Azure DevOps Test Plans import (organization, project, token; plan → suite) | Built (not yet tried against a real organization) |
+| **TC4** | Case-guided Studio: case steps as a checklist, record per step, "Do it for me", record again, change/add/remove steps, "Make the test"; draft linked to its case | Built |
+| **KB2** | Knowledge base reads Word (.docx) and Excel (.xlsx) | Built |
+| **N1** | Renamed to QA-STE100-Studio (was QA-ASD-STE100; "ASD-STE100" is ASD's trademark). `appId` and the data folder (`%APPDATA%\QA-ASD-STE100`) keep the old name so installed copies update and keep their data; old shortcuts are removed | Built |
+| **YT1** | **Your tests** screen: saved tests with search and filter, run one / selected / all in the live browser next to the list, Stop; run history per test (last 10, with errors and screenshots kept per run); rename; **Only for me** (kept on this computer, never translated or sent) | Built |
 | **S8** | Technical-user mode, code signing, polish | |
 
 ## Risks and mitigations

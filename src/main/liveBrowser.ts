@@ -3,9 +3,10 @@ import { existsSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { chromium, type BrowserContext, type CDPSession, type Page } from 'playwright-core'
-import { IPC, type BrowserInput, type BrowserNavigation, type BrowserState, type LoginResult } from '../shared/api'
+import { IPC, type BrowserInput, type BrowserInstall, type BrowserNavigation, type BrowserState, type LoginResult } from '../shared/api'
 import { getAccount, getAccountPassword } from './account'
-import { quote, runCommand } from './process'
+import { NODE_MODE, nodeCommandLine, playwrightCoreCli } from './nodeRunner'
+import { runCommand } from './process'
 import * as steps from './steps'
 import * as apiWorkbench from './apiWorkbench'
 
@@ -63,7 +64,7 @@ export async function startBrowser(): Promise<BrowserState> {
 }
 
 async function launch(): Promise<void> {
-  if (!existsSync(chromium.executablePath())) {
+  if (install.state !== 'ready') {
     updateState({ running: false, loading: true, error: null, url: 'Installing the browser… This takes a minute, only the first time.' })
     const installed = await installBrowser()
     updateState({ loading: false, url: '' })
@@ -83,12 +84,12 @@ async function launch(): Promise<void> {
     })
   } catch (error) {
     context = null
-    // Headless mode can need a second download (the headless shell) besides the browser itself.
+    // The browser folder was removed while the app was open: download it again, once.
     const missing = /Executable doesn't exist/i.test((error as Error).message)
     if (missing && !retriedAfterInstall) {
       retriedAfterInstall = true
       updateState({ loading: true, url: 'Installing the browser… This takes a minute, only the first time.' })
-      const installed = await installBrowser()
+      const installed = await installBrowser(true)
       updateState({ loading: false, url: '' })
       if (installed) return launch()
     }
@@ -352,12 +353,71 @@ export async function closeBrowser(): Promise<void> {
   context = null
 }
 
-/** Downloads the Chromium build that the app's own Playwright version needs. */
-async function installBrowser(): Promise<boolean> {
-  // In the installed app, playwright-core is unpacked next to the packed archive (see electron-builder.yml).
-  const cli = join(app.getAppPath().replace(/app\.asar$/, 'app.asar.unpacked'), 'node_modules', 'playwright-core', 'cli.js')
-  const result = await runCommand(`node ${quote(cli)} install chromium`, { cwd: app.getAppPath(), timeoutMs: 15 * 60_000 })
-  return result.code === 0 && existsSync(chromium.executablePath())
+// --- The one-time browser download ---------------------------------------------------------
+// The live view runs headless, which uses Chromium's headless shell: only that is downloaded
+// (about half the size of the full browser), with the app's own Playwright on its Electron.
+
+let install: BrowserInstall = { state: 'checking', percent: null }
+let installing: Promise<boolean> | null = null
+
+export function getBrowserInstall(): BrowserInstall {
+  return install
+}
+
+function setInstall(next: BrowserInstall): void {
+  install = next
+  send(IPC.browserInstall, install)
+}
+
+/** Called when the app opens, so the download runs while the tester goes through the first screens. */
+export function prefetchBrowser(): void {
+  void installBrowser()
+}
+
+/** Makes sure the browser is on this computer. Everyone who asks meanwhile shares one download. */
+function installBrowser(force = false): Promise<boolean> {
+  if (installing) return installing
+  if (install.state === 'ready' && !force) return Promise.resolve(true)
+  installing = (async () => {
+    if (!force) {
+      setInstall({ state: 'checking', percent: null })
+      if (await browserIsInstalled()) {
+        setInstall({ state: 'ready', percent: null })
+        return true
+      }
+    }
+    setInstall({ state: 'downloading', percent: 0 })
+    const result = await runCommand(nodeCommandLine(playwrightCoreCli(), 'install --only-shell chromium'), {
+      cwd: app.getPath('userData'),
+      env: NODE_MODE,
+      timeoutMs: 15 * 60_000,
+      onOutput: (chunk) => {
+        const percent = lastPercent(chunk)
+        if (percent !== null && percent !== install.percent) setInstall({ state: 'downloading', percent })
+      }
+    })
+    const installed = result.code === 0 && (await browserIsInstalled())
+    setInstall({ state: installed ? 'ready' : 'failed', percent: null })
+    return installed
+  })().finally(() => (installing = null))
+  return installing
+}
+
+async function browserIsInstalled(): Promise<boolean> {
+  // --dry-run lists where each download belongs, without downloading anything.
+  const result = await runCommand(nodeCommandLine(playwrightCoreCli(), 'install --dry-run --only-shell chromium'), {
+    cwd: app.getPath('userData'),
+    env: NODE_MODE,
+    timeoutMs: 60_000
+  })
+  const locations = [...result.output.matchAll(/Install location:\s+(.+)/g)].map((m) => m[1].trim())
+  return result.code === 0 && locations.length > 0 && locations.every((path) => existsSync(path))
+}
+
+/** The last "NN%" in the installer's progress output. */
+export function lastPercent(output: string): number | null {
+  const all = [...output.matchAll(/(\d{1,3})%/g)].map((m) => Number(m[1])).filter((n) => n <= 100)
+  return all.length ? all[all.length - 1] : null
 }
 
 function freePort(): Promise<number> {

@@ -17,7 +17,13 @@ export default function TestsList({ projectId, update, busy }: { projectId: stri
   return (
     <ul className="tests-list">
       {update.drafts.map((draft) => (
-        <TestItem key={draft.id} projectId={projectId} draft={draft} running={update.runningDraftId === draft.id} busy={busy || update.runningDraftId !== null} />
+        <TestItem
+          key={draft.id}
+          projectId={projectId}
+          draft={draft}
+          running={update.runningDraftIds.includes(draft.id)}
+          busy={busy || update.runningDraftIds.length > 0}
+        />
       ))}
     </ul>
   )
@@ -62,6 +68,7 @@ function TestItem({ projectId, draft, running, busy }: { projectId: string; draf
           {running ? '…' : passed ? '✓' : draft.lastRun?.status === 'failed' ? '✕' : '•'}
         </span>
         <span className="test-name">{draft.name}</span>
+        {draft.personal && <span className="personal-badge">Only for me</span>}
       </div>
       {draft.summary && <div className="small muted">{draft.summary}</div>}
 
@@ -85,7 +92,7 @@ function TestItem({ projectId, draft, running, busy }: { projectId: string; draf
         <button className="button secondary small" disabled={busy} onClick={() => window.api.runDraft(projectId, draft.id)}>
           {running ? 'Running…' : 'Run'}
         </button>
-        {passed && (
+        {passed && !draft.personal && (
           <button
             className="button secondary small"
             disabled={busy}
@@ -95,7 +102,7 @@ function TestItem({ projectId, draft, running, busy }: { projectId: string; draf
             {translation ? 'Translate again' : 'Translate to framework'}
           </button>
         )}
-        {translation?.committed && !translation.sentAt && (
+        {translation?.committed && !translation.sentAt && !draft.personal && (
           <button className="button primary small" disabled={busy || sending} onClick={send}>
             {sending ? 'Sending…' : 'Send for review'}
           </button>

@@ -29,7 +29,7 @@ export function buildTranslationPrompt(context: TranslationContext): string {
         'can show the result.'
 
   return `
-# You are inside "QA-ASD-STE100": translating a test into the QA team's framework
+# You are inside "QA-STE100-Studio": translating a test into the QA team's framework
 
 A tester who is NOT a developer made a draft test in this app, and it passes. Your job: write the same test
 in the QA team's automation framework (the current folder), so it follows the team's standards exactly.

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type AppApi, type ChatUpdate, type ApiState, type BrowserFrame, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent, type UpdateStatus } from '../shared/api'
+import { IPC, type AppApi, type ChatUpdate, type ApiState, type BrowserFrame, type BrowserInstall, type BrowserState, type DraftsUpdate, type KnowledgeBase, type PrepareStatus, type StepLog, type TaskOutputEvent, type TestCasesState, type UpdateStatus } from '../shared/api'
 
 const api: AppApi = {
   getAiSettings: () => ipcRenderer.invoke(IPC.getAiSettings),
@@ -67,12 +67,42 @@ const api: AppApi = {
     ipcRenderer.on(IPC.browserState, handler)
     return () => ipcRenderer.removeListener(IPC.browserState, handler)
   },
+  getBrowserInstall: () => ipcRenderer.invoke(IPC.getBrowserInstall),
+  onBrowserInstall: (listener) => {
+    const handler = (_event: IpcRendererEvent, install: BrowserInstall): void => listener(install)
+    ipcRenderer.on(IPC.browserInstall, handler)
+    return () => ipcRenderer.removeListener(IPC.browserInstall, handler)
+  },
 
   getKnowledge: (projectId) => ipcRenderer.invoke(IPC.getKnowledge, projectId),
   addKnowledgeFiles: (projectId) => ipcRenderer.invoke(IPC.addKnowledgeFiles, projectId),
   addKnowledgeLink: (projectId, url, note) => ipcRenderer.invoke(IPC.addKnowledgeLink, projectId, url, note),
   updateKnowledgeNote: (projectId, id, note) => ipcRenderer.invoke(IPC.updateKnowledgeNote, projectId, id, note),
   removeKnowledgeItem: (projectId, id) => ipcRenderer.invoke(IPC.removeKnowledgeItem, projectId, id),
+
+  getTestCases: (projectId) => ipcRenderer.invoke(IPC.getTestCases, projectId),
+  importTestCasesFile: (projectId) => ipcRenderer.invoke(IPC.importTestCasesFile, projectId),
+  importTestCasesText: (projectId, text) => ipcRenderer.invoke(IPC.importTestCasesText, projectId, text),
+  suggestTestCases: (projectId, basedOnCaseId) => ipcRenderer.invoke(IPC.suggestTestCases, projectId, basedOnCaseId),
+  acceptProposals: (projectId, ids) => ipcRenderer.invoke(IPC.acceptProposals, projectId, ids),
+  discardProposals: (projectId) => ipcRenderer.invoke(IPC.discardProposals, projectId),
+  saveTestCase: (projectId, testCase) => ipcRenderer.invoke(IPC.saveTestCase, projectId, testCase),
+  deleteTestCase: (projectId, id) => ipcRenderer.invoke(IPC.deleteTestCase, projectId, id),
+  onTestCasesUpdate: (listener) => {
+    const handler = (_event: IpcRendererEvent, update: { projectId: string; state: TestCasesState }): void => listener(update)
+    ipcRenderer.on(IPC.testCasesUpdate, handler)
+    return () => ipcRenderer.removeListener(IPC.testCasesUpdate, handler)
+  },
+  getAzureConfig: (projectId) => ipcRenderer.invoke(IPC.getAzureConfig, projectId),
+  saveAzureConfig: (orgUrl, project, token) => ipcRenderer.invoke(IPC.saveAzureConfig, orgUrl, project, token),
+  listAzurePlans: () => ipcRenderer.invoke(IPC.listAzurePlans),
+  listAzureSuites: (planId) => ipcRenderer.invoke(IPC.listAzureSuites, planId),
+  importAzureSuite: (projectId, planId, suiteId) => ipcRenderer.invoke(IPC.importAzureSuite, projectId, planId, suiteId),
+  openCaseInStudio: (projectId, caseId) => ipcRenderer.invoke(IPC.openCaseInStudio, projectId, caseId),
+  setCurrentCaseStep: (projectId, caseStepId) => ipcRenderer.invoke(IPC.setCurrentCaseStep, projectId, caseStepId),
+  clearCaseStep: (projectId, caseStepId) => ipcRenderer.invoke(IPC.clearCaseStep, projectId, caseStepId),
+  doCaseStep: (projectId, caseStepId) => ipcRenderer.invoke(IPC.doCaseStep, projectId, caseStepId),
+  makeTestFromCase: (projectId) => ipcRenderer.invoke(IPC.makeTestFromCase, projectId),
 
   getAppVersion: () => ipcRenderer.invoke(IPC.getAppVersion),
   getUpdateStatus: () => ipcRenderer.invoke(IPC.getUpdateStatus),
@@ -95,6 +125,10 @@ const api: AppApi = {
 
   getDrafts: (projectId) => ipcRenderer.invoke(IPC.getDrafts, projectId),
   runDraft: (projectId, draftId) => ipcRenderer.invoke(IPC.runDraft, projectId, draftId),
+  runDrafts: (projectId, draftIds) => ipcRenderer.invoke(IPC.runDrafts, projectId, draftIds),
+  stopDrafts: (projectId) => ipcRenderer.invoke(IPC.stopDrafts, projectId),
+  setDraftPersonal: (projectId, draftId, personal) => ipcRenderer.invoke(IPC.setDraftPersonal, projectId, draftId, personal),
+  renameDraft: (projectId, draftId, name) => ipcRenderer.invoke(IPC.renameDraft, projectId, draftId, name),
   deleteDraft: (projectId, draftId) => ipcRenderer.invoke(IPC.deleteDraft, projectId, draftId),
   translateDraft: (projectId, draftId) => ipcRenderer.invoke(IPC.translateDraft, projectId, draftId),
   sendForReview: (projectId, draftId) => ipcRenderer.invoke(IPC.sendForReview, projectId, draftId),

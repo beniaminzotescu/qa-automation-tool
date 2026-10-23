@@ -49,7 +49,7 @@ export default function KnowledgeScreen({ projectId }: { projectId: string }) {
             Add files…
           </button>
         </div>
-        <p className="small muted">PDF, Markdown, text and images are read best. Save Word documents as PDF.</p>
+        <p className="small muted">PDF, Word (.docx), Excel (.xlsx), Markdown, text and images can be read.</p>
         {knowledge.files.length === 0 ? (
           <p className="muted">No files yet.</p>
         ) : (
@@ -59,7 +59,7 @@ export default function KnowledgeScreen({ projectId }: { projectId: string }) {
                 <div className="knowledge-main">
                   <span className="knowledge-name">{file.name}</span>
                   <span className="small muted"> · {formatSize(file.size)}</span>
-                  {!file.readable && <span className="knowledge-warning"> Save as PDF so it can be read</span>}
+                  {!file.readable && <span className="knowledge-warning"> Save as .docx, .xlsx or PDF so it can be read</span>}
                 </div>
                 <NoteField
                   value={file.note}

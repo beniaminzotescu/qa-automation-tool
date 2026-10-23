@@ -2,28 +2,38 @@ import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { extname, isAbsolute, join, relative } from 'node:path'
-import { STAGES, IPC, type Chat, type ChatItem, type ChatSummary, type Project, type Stage, type TestReport } from '../shared/api'
+import { STAGES, IPC, type Chat, type ChatItem, type ChatSummary, type Project, type Stage, type TestCase, type TestReport } from '../shared/api'
 import { buildChatPrompt, type PromptApplication } from './chatPrompt'
 import { runTurn, type ContentBlock, type McpServer, type StreamMessage } from './claudeRunner'
+import { NODE_MODE, nodeCommandLine, playwrightCoreCli, playwrightMcpCli } from './nodeRunner'
 import { freshPath, quote, runCommand } from './process'
 import { getAccount, getAccountPassword } from './account'
 import { draftEnv, draftsDir, ensureDraftsProject, ensureRunner, listDrafts, recordRun, registerDraft } from './drafts'
+import { ensureFrameworkReady, isFrameworkReady } from './prepare'
 import { getProject } from './projects'
 import { baseBranchOf, commitTranslation, findPython, frameworkKind, prepareTranslationBranch } from './translate'
 import { buildTranslationPrompt } from './translatePrompt'
 import { knowledgeDir, knowledgeForPrompt } from './knowledge'
 import { getDebuggingEndpoint, logInIfNeeded, startBrowser } from './liveBrowser'
-import { setActor, stepsDir, takeUnsharedSteps } from './steps'
+import { caseRecordingText, getActiveCaseId, openCase, setActor, setCurrentCaseStep, setRecording, stepsDir, takeUnsharedSteps } from './steps'
+import { getTestCase, updateCaseProgress } from './testCases'
 import { readTestReport } from './testReport'
 
 // The test chat: one conversation per project at a time. Claude works in the tester's drafts
 // folder (simple Playwright tests run in the live browser) and only reads the QA framework.
 // This module starts each turn and turns Claude's messages into plain-language chat items.
 
-const PLAYWRIGHT_MCP = '@playwright/mcp@0.0.83'
 const BROWSER_SERVER = 'browser'
 
 const running = new Map<string, AbortController>()
+/**
+ * The conversation a running turn works on. Everything else that adds to the chat meanwhile (Stop, a
+ * run from Your tests) uses this same object, so the turn's next save can't overwrite what they added.
+ */
+const active = new Map<string, Chat>()
+/** While Claude streams, the chat is written and sent to the window at most this often. */
+const SAVE_INTERVAL_MS = 250
+const pendingSaves = new Map<string, NodeJS.Timeout>()
 
 // All conversations of a project are kept: chats/<project>/conversations/<chat>/chat.json, plus
 // files Claude may read (the tester's environment). current.json says which one is open.
@@ -66,6 +76,8 @@ function setCurrent(projectId: string, chatId: string | null): void {
 
 /** The open conversation, or null when the tester starts a new one. */
 export function getChat(projectId: string): Chat | null {
+  const current = active.get(projectId)
+  if (current) return current
   migrateSingleChat(projectId)
   try {
     const { id } = JSON.parse(readFileSync(currentFile(projectId), 'utf8')) as { id: string | null }
@@ -76,10 +88,18 @@ export function getChat(projectId: string): Chat | null {
 }
 
 function save(chat: Chat): void {
+  clearTimeout(pendingSaves.get(chat.id))
+  pendingSaves.delete(chat.id)
   mkdirSync(conversationDir(chat.projectId, chat.id), { recursive: true })
   writeFileSync(join(conversationDir(chat.projectId, chat.id), 'chat.json'), JSON.stringify(chat, null, 1))
   setCurrent(chat.projectId, chat.id)
   emit(chat.projectId, chat)
+}
+
+/** For the stream of messages during a turn: one write for many messages. */
+function saveSoon(chat: Chat): void {
+  if (pendingSaves.has(chat.id)) return
+  pendingSaves.set(chat.id, setTimeout(() => save(chat), SAVE_INTERVAL_MS))
 }
 
 function emit(projectId: string, chat: Chat | null): void {
@@ -157,25 +177,40 @@ interface SendOptions {
 type TurnMode = { kind: 'draft' } | { kind: 'translate'; draftId: string }
 
 export async function sendMessage(project: Project, text: string, options: SendOptions = {}): Promise<void> {
-  if (running.has(project.id)) throw new Error('Still working on the previous message.')
+  const busy = active.get(project.id)
+  if (running.has(project.id) && busy) {
+    notice(busy, 'Still working on the previous message. Wait until it is done, or press Stop.')
+    return
+  }
   const controller = new AbortController()
   running.set(project.id, controller)
 
-  const chat: Chat = getChat(project.id) ?? newChat(project.id)
+  const chat: Chat = getChat(project.id) ?? { ...newChat(project.id), caseId: getActiveCaseId(project.id) }
+  active.set(project.id, chat)
   if (options.recordingDir) chat.recordingDir = options.recordingDir
   push(chat, { kind: 'user', text: options.display ?? text })
   // Steps recorded in the live browser since the last message go with this message.
-  const recorded = takeUnsharedSteps(project.id)
+  const testCase = chat.caseId ? getTestCase(project.id, chat.caseId) : null
+  const recorded = takeUnsharedSteps(project.id, (caseStepId) => {
+    const index = testCase?.steps.findIndex((s) => s.id === caseStepId) ?? -1
+    return index === -1 ? null : index + 1
+  })
   const prompt = recorded ? [recorded, text].join('\n\n') : text
   chat.status = 'preparing'
   save(chat)
 
   try {
-    await ensureRunner((message) => notice(chat, message))
+    ensureRunner()
     const application = await connectBrowser(project)
     if (options.translateDraftId) {
       const draft = listDrafts(project.id).find((d) => d.id === options.translateDraftId)
       if (!draft) throw new Error('This test no longer exists.')
+      if (!isFrameworkReady(project.id)) {
+        notice(chat, 'Getting the framework ready to run tests. This takes a few minutes, only the first time…')
+        const ready = await ensureFrameworkReady(project)
+        // The assistant can still translate; it just can't run the result to check it.
+        if (!ready.ok && ready.message) notice(chat, ready.message, 'error')
+      }
       notice(chat, 'Getting the latest version of the framework…')
       await prepareTranslationBranch(project, draft)
       chat.translatingDraftId = draft.id
@@ -194,7 +229,19 @@ export async function sendMessage(project: Project, text: string, options: SendO
     running.delete(project.id)
     chat.status = 'idle'
     save(chat)
+    active.delete(project.id)
   }
+}
+
+/** A turn that failed before it could tell the chat itself (for calls the window doesn't wait for). */
+export function reportTurnError(projectId: string, error: unknown): void {
+  const chat = getChat(projectId) ?? newChat(projectId)
+  notice(chat, `Something went wrong: ${(error as Error)?.message ?? String(error)}`, 'error')
+}
+
+/** True while the assistant is working for this project (it uses the live browser). */
+export function isTurnRunning(projectId: string): boolean {
+  return running.has(projectId)
 }
 
 export function stopChat(projectId: string): void {
@@ -262,13 +309,11 @@ async function runClaude(
 
   const mcpServers: Record<string, McpServer> = {}
   if (application.browserServer) {
+    // The browser tool comes with the app and runs on its Electron in Node mode.
     mcpServers[application.browserServer] = {
-      command: 'cmd',
-      args: [
-        '/c', 'npx', '-y', PLAYWRIGHT_MCP,
-        '--cdp-endpoint', getDebuggingEndpoint()!,
-        '--output-dir', join(dir, 'browser')
-      ]
+      command: process.execPath,
+      args: [playwrightMcpCli(), '--cdp-endpoint', getDebuggingEndpoint()!, '--output-dir', join(dir, 'browser')],
+      env: NODE_MODE
     }
   }
 
@@ -277,8 +322,8 @@ async function runClaude(
   // copy can't be changed.
   const commands =
     mode.kind === 'draft'
-      ? ['npx playwright test', 'npx tsc', 'node', 'ls', 'dir']
-      : ['npx playwright test', 'npm run', 'npx tsc', 'node', 'python -m pytest', 'py -m pytest', 'pytest', 'git status', 'git diff', 'git log', 'ls', 'dir']
+      ? ['playwright test', 'playwright --version', 'ls', 'dir']
+      : ['npx playwright test', 'npm run', 'npx tsc', 'python -m pytest', 'py -m pytest', 'pytest', 'git status', 'git diff', 'git log', 'ls', 'dir']
   const allow = [
     'Read', 'Glob', 'Grep', 'TodoWrite', 'Task',
     ...(mode.kind === 'translate' ? ['Skill'] : []),
@@ -303,7 +348,9 @@ async function runClaude(
   }
 
   const appendSystemPrompt =
-    mode.kind === 'draft' ? buildChatPrompt(application, knowledge) : await translationPrompt(project, mode.draftId)
+    mode.kind === 'draft'
+      ? buildChatPrompt(application, knowledge, chat.caseId ? getTestCase(project.id, chat.caseId) : null)
+      : await translationPrompt(project, mode.draftId)
   const systemPromptFile = join(dir, 'system-prompt.md')
   const settingsFile = join(dir, 'claude-settings.json')
   const mcpConfigFile = join(dir, 'mcp.json')
@@ -344,7 +391,7 @@ async function runClaude(
       signal,
       onMessage: (message) => {
         handleMessage(chat, message, { cwd, dir, reportFile, toolUses, mode, project })
-        save(chat)
+        saveSoon(chat)
       }
     })
   } finally {
@@ -375,7 +422,7 @@ function handleMessage(chat: Chat, message: StreamMessage, context: TurnContext)
         if (block.text.includes('```tfb-scenarios')) advance(chat, 'plan')
         if (block.text.includes('```tfb-ready')) {
           advance(chat, 'ready')
-          keepDraft(chat.projectId, block.text)
+          keepDraft(chat, block.text)
         }
         if (block.text.includes('```tfb-translated') && context.mode.kind === 'translate') {
           finishTranslation(chat, context.project, context.mode.draftId, block.text)
@@ -514,9 +561,9 @@ const MIME: Record<string, string> = {
   '.mp4': 'video/mp4'
 }
 
-/** Screenshots and videos from test runs, only from the working copy or the chat folder. */
+/** Screenshots and videos from test runs, only from the working copy, the drafts or the chat folder. */
 export function readAttachment(project: Project, path: string): string | null {
-  const roots = [project.workspacePath, chatDir(project.id), stepsDir(project.id)]
+  const roots = [project.workspacePath, draftsDir(project.id), chatDir(project.id), stepsDir(project.id)]
   const allowed = roots.some((root) => isInside(root, path))
   const mime = MIME[extname(path).toLowerCase()]
   if (!allowed || !mime || !existsSync(path)) return null
@@ -524,8 +571,9 @@ export function readAttachment(project: Project, path: string): string | null {
 }
 
 export function openTrace(project: Project, path: string): void {
-  if (!isInside(project.workspacePath, path) || !existsSync(path)) return
-  void runCommand(`npx playwright show-trace ${quote(path)}`, { cwd: project.workspacePath })
+  const allowed = [project.workspacePath, draftsDir(project.id)].some((root) => isInside(root, path))
+  if (!allowed || !existsSync(path)) return
+  void runCommand(nodeCommandLine(playwrightCoreCli(), `show-trace ${quote(path)}`), { cwd: project.workspacePath, env: NODE_MODE })
 }
 
 function isInside(root: string, path: string): boolean {
@@ -552,13 +600,15 @@ function recordingDocLinks(dir: string | null | undefined): string[] {
 }
 
 
-/** The ready card names the finished test: keep it in the tester's list. */
-function keepDraft(projectId: string, text: string): void {
+/** The ready card names the finished test: keep it in the tester's list (and on its test case). */
+function keepDraft(chat: Chat, text: string): void {
   const json = /```tfb-ready\s*\n([\s\S]*?)```/.exec(text)?.[1]
   if (!json) return
   try {
     const card = JSON.parse(json) as { name?: string; file?: string; summary?: string }
-    if (card.file) registerDraft(projectId, { name: card.name ?? '', file: card.file, summary: card.summary ?? '' })
+    if (!card.file) return
+    const draftId = registerDraft(chat.projectId, { name: card.name ?? '', file: card.file, summary: card.summary ?? '' })
+    if (chat.caseId) updateCaseProgress(chat.projectId, chat.caseId, { status: 'automated', draftId })
   } catch {
     // Not valid JSON: the test file is still listed under its file name.
   }
@@ -623,12 +673,64 @@ function finishTranslation(chat: Chat, project: Project, draftId: string, text: 
   }
 }
 
+// --- A test case open in the Studio ----------------------------------------------------------
+
+/** Opens a test case in the Studio (null closes it): its own step log, and a new conversation. */
+export function openCaseInStudio(projectId: string, caseId: string | null): void {
+  if (running.has(projectId)) throw new Error('Wait until the assistant has finished.')
+  const testCase = caseId ? getTestCase(projectId, caseId) : null
+  if (caseId && !testCase) throw new Error('This test case no longer exists.')
+  openCase(projectId, testCase?.id ?? null, testCase?.steps.map((s) => s.id) ?? [])
+  // The conversation so far stays in Past chats; the next message starts one about this case.
+  if (getChat(projectId)?.caseId !== (testCase?.id ?? null)) {
+    setCurrent(projectId, null)
+    emit(projectId, null)
+  }
+  if (testCase?.status === 'new') updateCaseProgress(projectId, testCase.id, { status: 'in-progress' })
+}
+
+/** The assistant does one case step in the live browser; while recording, its actions are recorded for that step. */
+export function doCaseStep(projectId: string, caseStepId: string): Promise<void> {
+  const testCase = openTestCase(projectId)
+  const index = testCase.steps.findIndex((s) => s.id === caseStepId)
+  if (index === -1) throw new Error('This step is no longer in the test case.')
+  const step = testCase.steps[index]
+  setCurrentCaseStep(projectId, caseStepId)
+  setRecording(projectId, true)
+  return sendMessage(
+    getProject(projectId),
+    `Do only step ${index + 1} of the test case in the live browser: "${step.action}"` +
+      `${step.expected ? ` (afterwards this must be true: "${step.expected}")` : ''}. ` +
+      "Don't do the steps after it and don't write the test yet. Then tell me in one short sentence what you did.",
+    { display: `Do step ${index + 1} for me: ${step.action}` }
+  )
+}
+
+/** The assistant writes the test from the open case and what was recorded for each of its steps. */
+export function makeTestFromCase(projectId: string): Promise<void> {
+  const testCase = openTestCase(projectId)
+  updateCaseProgress(projectId, testCase.id, { status: 'recorded' })
+  const recording = caseRecordingText(projectId, testCase.steps)
+  return sendMessage(
+    getProject(projectId),
+    `${recording}\n\nMake the test "${testCase.title}" from the test case and what I recorded for each step.`,
+    { display: `Make the test "${testCase.title}" from what I recorded.` }
+  )
+}
+
+function openTestCase(projectId: string): TestCase {
+  const caseId = getActiveCaseId(projectId)
+  const testCase = caseId ? getTestCase(projectId, caseId) : null
+  if (!testCase) throw new Error('Open a test case first.')
+  return testCase
+}
+
 /** Starts translating a draft: the conversation continues in the framework copy. */
-export function translateDraft(projectId: string, draftId: string): void {
+export async function translateDraft(projectId: string, draftId: string): Promise<void> {
   const project = getProject(projectId)
   const draft = listDrafts(projectId).find((d) => d.id === draftId)
   if (!draft) return
-  void sendMessage(
+  return sendMessage(
     project,
     `Translate the test "${draft.name}" into the QA team's framework, following its standards. Then run it there.`,
     { translateDraftId: draftId }

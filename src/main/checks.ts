@@ -11,7 +11,8 @@ const MIN_NODE_MAJOR = 20
 
 type Output = (chunk: string) => void
 
-export async function runChecks(project: Project): Promise<CheckResult[]> {
+/** `typecheck: false` skips the framework's code check (minutes on a big framework). */
+export async function runChecks(project: Project, options: { typecheck?: boolean } = {}): Promise<CheckResult[]> {
   const cwd = project.workspacePath
   const results: CheckResult[] = []
 
@@ -34,7 +35,7 @@ export async function runChecks(project: Project): Promise<CheckResult[]> {
   if (usesPlaywright) {
     results.push(depsReady ? await checkBrowsers(cwd) : blocked('browsers', 'Test browsers', 'the test packages'))
   }
-  if (hasTypeScript) {
+  if (hasTypeScript && options.typecheck !== false) {
     results.push(depsReady ? await checkTypecheck(cwd) : blocked('typecheck', 'Framework code', 'the test packages'))
   }
 

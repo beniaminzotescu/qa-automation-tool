@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Account, AiSettings, ClaudeCodeStatus, Project, RepoConfig, SshKeyStatus, UserType } from '../../../shared/api'
+import type { Account, AiSettings, BrowserInstall, ClaudeCodeStatus, Project, RepoConfig, SshKeyStatus, UserType } from '../../../shared/api'
 import WelcomeScreen from './WelcomeScreen'
 import SettingsScreen from './SettingsScreen'
 import PreparingScreen from './PreparingScreen'
@@ -59,6 +59,7 @@ export default function OnboardingScreen(props: Props) {
           </li>
         ))}
       </ol>
+      <BrowserDownload />
 
       {step === 'you' && (
         <WelcomeScreen
@@ -124,6 +125,32 @@ export default function OnboardingScreen(props: Props) {
       )}
     </div>
   )
+}
+
+/** The live browser downloads in the background while the tester goes through these steps. */
+function BrowserDownload() {
+  const [install, setInstall] = useState<BrowserInstall | null>(null)
+
+  useEffect(() => {
+    window.api.getBrowserInstall().then(setInstall)
+    return window.api.onBrowserInstall(setInstall)
+  }, [])
+
+  if (install?.state === 'downloading') {
+    return (
+      <p className="small muted onboarding-download">
+        Getting the browser ready in the background{install.percent ? `… ${install.percent}%` : '…'}
+      </p>
+    )
+  }
+  if (install?.state === 'failed') {
+    return (
+      <p className="small muted onboarding-download">
+        The browser could not be downloaded yet. The app tries again when you open the Studio.
+      </p>
+    )
+  }
+  return null
 }
 
 /** Clone a repository (with the SSH key) or use a folder on this computer. */

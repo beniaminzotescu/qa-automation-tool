@@ -177,6 +177,8 @@ export interface Chat {
   stage: Stage
   /** The recording this test was made from; Claude can read its folder. */
   recordingDir?: string | null
+  /** The test case this conversation is about, if it was started with one open in the Studio. */
+  caseId?: string | null
   status: 'idle' | 'preparing' | 'working'
   items: ChatItem[]
   costUsd: number
@@ -217,7 +219,7 @@ export interface SshKeyStatus {
 
 export type SshKeyResult = { ok: true; status: SshKeyStatus } | { ok: false; message: string }
 
-export type PrepareStepId = 'framework' | 'workingCopy' | 'packages' | 'browsers' | 'code'
+export type PrepareStepId = 'framework' | 'workingCopy'
 
 export interface PrepareStep {
   id: PrepareStepId
@@ -278,6 +280,13 @@ export interface BrowserState {
   error: string | null
 }
 
+/** The one-time download of the live browser, started in the background when the app opens. */
+export interface BrowserInstall {
+  state: 'checking' | 'downloading' | 'ready' | 'failed'
+  /** Download progress, 0–100, while downloading. */
+  percent: number | null
+}
+
 export interface BrowserFrame {
   /** JPEG, base64. */
   data: string
@@ -334,6 +343,8 @@ export interface RecordedStep {
   screenshot: string | null
   /** Who did it in the live browser: the tester, or Claude while it was working. */
   by: 'user' | 'claude'
+  /** With a test case open: the case step this action belongs to. */
+  caseStepId?: string | null
 }
 
 export type RecorderMode = 'record' | 'check-text' | 'check-visible'
@@ -346,6 +357,10 @@ export interface StepLog {
   steps: RecordedStep[]
   /** How many steps Claude has already been told about. */
   sharedWithClaude: number
+  /** The test case open in the Studio, or null for free recording. */
+  caseId: string | null
+  /** The case step new actions are recorded for. */
+  currentCaseStepId: string | null
 }
 
 /** A documentation file of the application under test, in the knowledge base. */
@@ -355,8 +370,10 @@ export interface KnowledgeFile {
   /** What it is, in a few words (helps the assistant pick what to read). */
   note: string
   path: string
+  /** Text copy of a Word or Excel file, which is what the assistant reads. */
+  textPath?: string | null
   size: number
-  /** False for formats the assistant can't read well (e.g. Word): saving as PDF helps. */
+  /** False for formats the assistant can't read (e.g. old .doc / .xls): saving as .docx, .xlsx or PDF helps. */
   readable: boolean
   addedAt: string
 }
@@ -373,6 +390,56 @@ export interface KnowledgeBase {
   links: KnowledgeLink[]
 }
 
+/** One step of a test case: what to do, and what must be true after it (if anything). */
+export interface CaseStep {
+  id: string
+  action: string
+  expected: string | null
+}
+
+/**
+ * A test case the team wrote (imported) or the assistant suggested. It is the baseline: the tester
+ * records the real test against it in the Studio, changing steps where the application differs.
+ */
+export interface TestCase {
+  id: string
+  title: string
+  preconditions: string
+  steps: CaseStep[]
+  tags: string[]
+  source: { kind: 'file' | 'paste' | 'ado' | 'generated' | 'manual'; name?: string; ref?: string }
+  status: 'new' | 'in-progress' | 'recorded' | 'automated'
+  /** The draft test made from it, once there is one. */
+  draftId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestCasesState {
+  cases: TestCase[]
+  /** Cases read from a file, pasted text or Azure DevOps, or suggested: the tester picks which to keep. */
+  proposals: TestCase[]
+  /** Set while the assistant reads or suggests; a plain sentence for the screen. */
+  busy: string | null
+  /** The last problem, in plain words. */
+  error: string | null
+  /** A short remark from the assistant about the last import or suggestion. */
+  note: string | null
+}
+
+/** Connection to Azure DevOps Test Plans. The access token is kept in secure storage. */
+export interface AzureTestPlansConfig {
+  /** e.g. https://dev.azure.com/my-org */
+  orgUrl: string
+  project: string
+  hasToken: boolean
+}
+
+export interface AzureItem {
+  id: number
+  name: string
+}
+
 /** A test the tester keeps in the app: a simple Playwright test, run in the live browser. */
 export interface Draft {
   id: string
@@ -386,6 +453,10 @@ export interface Draft {
   lastRun: { status: 'passed' | 'failed'; at: string; passed: number; failed: number } | null
   /** Set once the draft was translated into the framework. */
   translation?: Translation
+  /** Kept only for the tester, to run again whenever they like: never translated or sent to the team. */
+  personal?: boolean
+  /** Recent runs, newest first, each with this test's results (errors, screenshots). */
+  runs?: DraftRun[]
 }
 
 export interface Translation {
@@ -405,11 +476,19 @@ export interface Translation {
 
 export type SendResult = { ok: true; message: string; prUrl: string | null } | { ok: false; message: string }
 
+export interface DraftRun {
+  id: string
+  at: string
+  /** Who started it: the tester (Run) or the assistant while writing the test. */
+  by: 'tester' | 'assistant'
+  report: TestReport
+}
+
 export interface DraftsUpdate {
   projectId: string
   drafts: Draft[]
-  /** The draft running in the live browser right now, if any. */
-  runningDraftId: string | null
+  /** The drafts running in the live browser right now (one after another). */
+  runningDraftIds: string[]
 }
 
 /** A newer version of the app: downloading in the background, or ready to install. */
@@ -547,6 +626,8 @@ export interface AppApi {
   browserLogin(): Promise<LoginResult>
   onBrowserFrame(listener: (frame: BrowserFrame) => void): () => void
   onBrowserState(listener: (state: BrowserState) => void): () => void
+  getBrowserInstall(): Promise<BrowserInstall>
+  onBrowserInstall(listener: (install: BrowserInstall) => void): () => void
 
   getStepLog(projectId: string): Promise<StepLog>
   setRecording(projectId: string, recording: boolean): Promise<void>
@@ -565,9 +646,43 @@ export interface AppApi {
   updateKnowledgeNote(projectId: string, id: string, note: string): Promise<KnowledgeBase>
   removeKnowledgeItem(projectId: string, id: string): Promise<KnowledgeBase>
 
+  getTestCases(projectId: string): Promise<TestCasesState>
+  /** Opens a file picker; the assistant reads the test cases in the chosen file (shown as proposals). */
+  importTestCasesFile(projectId: string): Promise<void>
+  importTestCasesText(projectId: string, text: string): Promise<void>
+  /** More cases from the existing ones and the knowledge base; variations of one case when an id is given. */
+  suggestTestCases(projectId: string, basedOnCaseId: string | null): Promise<void>
+  acceptProposals(projectId: string, ids: string[]): Promise<TestCasesState>
+  discardProposals(projectId: string): Promise<TestCasesState>
+  /** Creates or updates a test case. */
+  saveTestCase(projectId: string, testCase: TestCase): Promise<TestCasesState>
+  deleteTestCase(projectId: string, id: string): Promise<TestCasesState>
+  onTestCasesUpdate(listener: (update: { projectId: string; state: TestCasesState }) => void): () => void
+
+  getAzureConfig(projectId: string): Promise<AzureTestPlansConfig>
+  saveAzureConfig(orgUrl: string, project: string, token: string): Promise<{ ok: boolean; message: string; config: AzureTestPlansConfig }>
+  listAzurePlans(): Promise<AzureItem[]>
+  listAzureSuites(planId: number): Promise<AzureItem[]>
+  importAzureSuite(projectId: string, planId: number, suiteId: number): Promise<void>
+
+  /** Opens a test case in the Studio (null closes it). Starts a new conversation for it. */
+  openCaseInStudio(projectId: string, caseId: string | null): Promise<void>
+  setCurrentCaseStep(projectId: string, caseStepId: string | null): Promise<void>
+  /** Removes what was recorded for a case step so the tester can record it again. */
+  clearCaseStep(projectId: string, caseStepId: string): Promise<void>
+  /** The assistant does this one case step in the live browser; its actions are recorded for it. */
+  doCaseStep(projectId: string, caseStepId: string): Promise<void>
+  /** The assistant writes the test from the open case and what was recorded for each step. */
+  makeTestFromCase(projectId: string): Promise<void>
+
   getDrafts(projectId: string): Promise<DraftsUpdate>
   /** Runs a kept test in the live browser; the result also appears in the chat. */
   runDraft(projectId: string, draftId: string): Promise<void>
+  /** Runs several tests one after another in the live browser (from Your tests). */
+  runDrafts(projectId: string, draftIds: string[]): Promise<void>
+  stopDrafts(projectId: string): Promise<void>
+  setDraftPersonal(projectId: string, draftId: string, personal: boolean): Promise<void>
+  renameDraft(projectId: string, draftId: string, name: string): Promise<void>
   deleteDraft(projectId: string, draftId: string): Promise<void>
   /** The assistant translates a passing draft into the framework (progress in the chat). */
   translateDraft(projectId: string, draftId: string): Promise<void>
@@ -637,12 +752,33 @@ export const IPC = {
   browserLogin: 'browser:login',
   browserFrame: 'browser:frame',
   browserState: 'browser:state',
+  getBrowserInstall: 'browser:getInstall',
+  browserInstall: 'browser:install',
   getKnowledge: 'knowledge:get',
   addKnowledgeFiles: 'knowledge:addFiles',
   addKnowledgeLink: 'knowledge:addLink',
   updateKnowledgeNote: 'knowledge:note',
   removeKnowledgeItem: 'knowledge:remove',
   knowledgeUpdate: 'knowledge:update',
+  getTestCases: 'cases:get',
+  importTestCasesFile: 'cases:importFile',
+  importTestCasesText: 'cases:importText',
+  suggestTestCases: 'cases:suggest',
+  acceptProposals: 'cases:accept',
+  discardProposals: 'cases:discard',
+  saveTestCase: 'cases:save',
+  deleteTestCase: 'cases:delete',
+  testCasesUpdate: 'cases:update',
+  getAzureConfig: 'azure:getConfig',
+  saveAzureConfig: 'azure:saveConfig',
+  listAzurePlans: 'azure:plans',
+  listAzureSuites: 'azure:suites',
+  importAzureSuite: 'azure:import',
+  openCaseInStudio: 'studio:openCase',
+  setCurrentCaseStep: 'studio:currentCaseStep',
+  clearCaseStep: 'studio:clearCaseStep',
+  doCaseStep: 'studio:doCaseStep',
+  makeTestFromCase: 'studio:makeTest',
   getAppVersion: 'app:version',
   getUpdateStatus: 'update:get',
   restartToUpdate: 'update:restart',
@@ -654,6 +790,10 @@ export const IPC = {
   apiState: 'api:state',
   getDrafts: 'drafts:get',
   runDraft: 'drafts:run',
+  runDrafts: 'drafts:runMany',
+  stopDrafts: 'drafts:stop',
+  setDraftPersonal: 'drafts:personal',
+  renameDraft: 'drafts:rename',
   deleteDraft: 'drafts:delete',
   draftsUpdate: 'drafts:update',
   translateDraft: 'drafts:translate',

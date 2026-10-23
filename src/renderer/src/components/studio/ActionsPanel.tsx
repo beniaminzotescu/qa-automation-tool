@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { DraftsUpdate, RecorderMode, StepLog } from '../../../../shared/api'
+import type { DraftsUpdate, RecorderMode, StepLog, TestCase } from '../../../../shared/api'
+import CaseChecklist from './CaseChecklist'
 import StepList from './StepList'
 import TestsList from './TestsList'
 
@@ -18,13 +19,27 @@ interface Props {
 export default function ActionsPanel({ projectId, claudeWorking, drafts }: Props) {
   const [log, setLog] = useState<StepLog | null>(null)
   const [tab, setTab] = useState<'steps' | 'tests'>('steps')
+  const [cases, setCases] = useState<TestCase[]>([])
 
   useEffect(() => {
     window.api.getStepLog(projectId).then(setLog)
-    return window.api.onStepLogUpdate((update) => {
+    window.api.getTestCases(projectId).then((state) => setCases(state.cases))
+    const offLog = window.api.onStepLogUpdate((update) => {
       if (update.projectId === projectId) setLog(update.log)
     })
+    const offCases = window.api.onTestCasesUpdate((update) => {
+      if (update.projectId === projectId) setCases(update.state.cases)
+    })
+    return () => {
+      offLog()
+      offCases()
+    }
   }, [projectId])
+
+  // A test case was just opened from the Test cases screen: show it.
+  useEffect(() => {
+    if (log?.caseId) setTab('steps')
+  }, [log?.caseId])
 
   // Esc leaves check mode.
   useEffect(() => {
@@ -47,6 +62,7 @@ export default function ActionsPanel({ projectId, claudeWorking, drafts }: Props
   }
 
   const unshared = log.steps.length - log.sharedWithClaude
+  const testCase = log.caseId ? (cases.find((c) => c.id === log.caseId) ?? null) : null
 
   return (
     <>
@@ -91,7 +107,7 @@ export default function ActionsPanel({ projectId, claudeWorking, drafts }: Props
 
       <div className="panel-tabs">
         <button className={tab === 'steps' ? 'panel-tab active' : 'panel-tab'} onClick={() => setTab('steps')}>
-          Steps ({log.steps.length})
+          {testCase ? 'Test case' : `Steps (${log.steps.length})`}
         </button>
         <button className={tab === 'tests' ? 'panel-tab active' : 'panel-tab'} onClick={() => setTab('tests')}>
           Your tests ({drafts?.drafts.length ?? 0})
@@ -100,13 +116,15 @@ export default function ActionsPanel({ projectId, claudeWorking, drafts }: Props
 
       {tab === 'tests' && <TestsList projectId={projectId} update={drafts} busy={claudeWorking} />}
 
-      {tab === 'steps' && (
+      {tab === 'steps' && testCase && <CaseChecklist projectId={projectId} testCase={testCase} log={log} busy={claudeWorking} />}
+
+      {tab === 'steps' && !testCase && (
         <div className="steps-scroll">
           <StepList projectId={projectId} steps={log.steps} />
         </div>
       )}
 
-      {tab === 'steps' && log.steps.length > 0 && (
+      {tab === 'steps' && !testCase && log.steps.length > 0 && (
         <div className="steps-footer">
           {unshared > 0 && (
             <p className="small muted">

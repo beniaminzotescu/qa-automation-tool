@@ -65,7 +65,7 @@ export default function StudioScreen({ project }: { project: Project }) {
   }
 
   const claudeWorking = chat?.status === 'working' || chat?.status === 'preparing'
-  const testRunning = drafts?.runningDraftId != null
+  const testRunning = (drafts?.runningDraftIds.length ?? 0) > 0
   const busyLabel = claudeWorking
     ? 'Automating… (your input is paused)'
     : testRunning
@@ -100,7 +100,12 @@ export default function StudioScreen({ project }: { project: Project }) {
         </div>
         <div className="studio-work">
           {mode === 'ui' ? (
-            <LiveBrowser busyLabel={busyLabel} onStop={claudeWorking ? () => window.api.stopChat(project.id) : null} />
+            <LiveBrowser
+              busyLabel={busyLabel}
+              onStop={
+                claudeWorking ? () => window.api.stopChat(project.id) : testRunning ? () => window.api.stopDrafts(project.id) : null
+              }
+            />
           ) : (
             api && (
               <ApiWorkbench

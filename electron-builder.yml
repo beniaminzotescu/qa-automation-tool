@@ -1,9 +1,10 @@
-# Windows installer and updates for QA-ASD-STE100.
+# Windows installer and updates for QA-STE100-Studio.
 # Icons:   npm run icons     (draws build/icon.png and the installer images)
 # Build:   npm run dist      (installers in dist/)
 # Release: set GH_TOKEN, then npm run release (uploads to GitHub Releases; the app updates from there)
+# Kept from the earlier name (QA-ASD-STE100): Windows knows installed copies by it, so updates keep working.
 appId: com.qa-asd-ste100.app
-productName: QA-ASD-STE100
+productName: QA-STE100-Studio
 copyright: Copyright © 2026 Beniamin Zotescu
 directories:
   output: dist
@@ -14,7 +15,12 @@ files:
 # These run as separate programs, so they must not stay inside the packed archive.
 asarUnpack:
   - node_modules/playwright-core/**
+  # The test runner and Claude's browser tool, run on the app's Electron (src/main/nodeRunner.ts).
+  - node_modules/playwright/**
+  - node_modules/@playwright/**
   - node_modules/@anthropic-ai/claude-agent-sdk/**
+  # Claude Code itself for API key mode (a program, so it can't run from inside the archive).
+  - node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**
 
 win:
   icon: build/icon.png
@@ -34,7 +40,7 @@ nsis: &installer
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: QA-ASD-STE100
+  shortcutName: QA-STE100-Studio
   installerSidebar: build/installerSidebar.bmp
   uninstallerSidebar: build/installerSidebar.bmp
   installerHeader: build/installerHeader.bmp

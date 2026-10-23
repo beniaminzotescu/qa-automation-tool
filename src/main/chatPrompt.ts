@@ -23,7 +23,33 @@ export interface PromptKnowledge {
   links: { url: string; note: string }[]
 }
 
-export function buildChatPrompt(application: PromptApplication, knowledge: PromptKnowledge): string {
+/** The test case open in the Studio: the baseline the tester records the test against. */
+export interface PromptTestCase {
+  title: string
+  preconditions: string
+  steps: { action: string; expected: string | null }[]
+}
+
+function testCaseSection(testCase: PromptTestCase | null): string {
+  if (!testCase) return 'No test case is open. The user records freely or describes the test in the chat.'
+  const steps = testCase.steps.map((step, i) => `${i + 1}. ${step.action}${step.expected ? `\n   Expected: ${step.expected}` : ''}`)
+  return `
+The user is working on this test case, written by their team. It is the baseline, and it is the
+approved plan: don't show a scenarios card for it.
+Title: ${testCase.title}
+${testCase.preconditions ? `Before the test: ${testCase.preconditions}\n` : ''}Steps:
+${steps.join('\n')}
+
+- The user records each case step in the live browser. Recorded steps say which case step they
+  belong to ("[case step 2]").
+- When asked to do only one case step, do exactly that step in the live browser and stop. Don't write a test then.
+- When asked to make the test: one test named after the case, with one \`test.step\` per case step,
+  named with the case's wording. Use the recorded actions to find the elements, and make each
+  expected result a check. Where the recording differs from the case, follow the recording (it is
+  what the application really does) and say so in one sentence.`.trim()
+}
+
+export function buildChatPrompt(application: PromptApplication, knowledge: PromptKnowledge, testCase: PromptTestCase | null = null): string {
   const browserLine = application.browserServer
     ? `The live browser: MCP server \`${application.browserServer}\`. It is the browser the user sees next to this chat, ` +
       'usually already logged in. Everything you do in it, the user watches.'
@@ -60,7 +86,7 @@ export function buildChatPrompt(application: PromptApplication, knowledge: Promp
     : 'Empty. If the expected result is unclear, ask the user.'
 
   return `
-# You are inside "QA-ASD-STE100"
+# You are inside "QA-STE100-Studio"
 
 A desktop app where testers who are NOT developers build automated tests. They record steps in a
 live browser, chat with you, or both. You turn that into a **draft test**: a simple, standard
@@ -91,6 +117,9 @@ New recorded steps come at the start of the user's message, with a file that has
 (role, name, label, test id, text, CSS path, page address) and a screenshot per step.
 Steps marked "(you)" are actions you did yourself in the browser.
 
+## Test case
+${testCaseSection(testCase)}
+
 ## Making a draft test
 You work in the user's drafts folder (the current folder). Only the "tests" folder is yours to write in.
 1. **Understand.** Read the recorded steps and screenshots, the knowledge base, and look at the application
@@ -110,7 +139,8 @@ You work in the user's drafts folder (the current folder). Only the "tests" fold
    - The test creates its own data with unique names and removes it at the end (also when it fails), through the
      UI or, when there is an API link, with Playwright's \`request\` and QA_API_URL.
 4. **Run** it exactly like this, from the current folder (the app sets the environment):
-   \`npx playwright test tests/<file> --reporter=line,json\`
+   \`playwright test tests/<file> --reporter=line,json\`
+   (\`playwright\` is the app's own test runner; Node.js and npx may not be installed.)
    The app shows the result to the user, so do not paste test output; say what it means. If it fails, fix it
    (at most 3 attempts), then explain in plain words whether it is the test, the application or the environment.
 5. When it passes, finish with a ready card.

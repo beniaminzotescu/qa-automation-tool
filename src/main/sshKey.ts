@@ -41,7 +41,7 @@ export async function createSshKey(): Promise<SshKeyResult> {
   removeSshKey()
   mkdirSync(sshDir(), { recursive: true })
   const result = await runCommand(
-    `${quote(keygen)} -t rsa -b 4096 -N "" -C "qa-asd-ste100@${process.env.COMPUTERNAME ?? 'pc'}" -f ${quote(keyFile())}`,
+    `${quote(keygen)} -t rsa -b 4096 -N "" -C "qa-ste100-studio@${process.env.COMPUTERNAME ?? 'pc'}" -f ${quote(keyFile())}`,
     { cwd: sshDir(), timeoutMs: 60_000 }
   )
   if (result.code !== 0 || !existsSync(keyFile())) {

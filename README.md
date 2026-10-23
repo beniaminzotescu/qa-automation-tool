@@ -1,4 +1,4 @@
-# QA-ASD-STE100
+# QA-STE100-Studio
 
 Windows desktop app (Electron + React + TypeScript) that lets non-technical users write
 Playwright tests in plain English. See [PLAN.md](PLAN.md).
@@ -27,14 +27,14 @@ via Electron `safeStorage` and kept in `%APPDATA%\test-framework-builder\secrets
 
 ## Installer and updates
 
-- `npm run dist` builds the installer people get: `dist/nsis-web/QA-ASD-STE100-Setup-<version>.exe` (under 1 MB). It
+- `npm run dist` builds the installer people get: `dist/nsis-web/QA-STE100-Studio-Setup-<version>.exe` (under 1 MB). It
   shows a wizard (only for me / all users, install folder), downloads the app from the GitHub release with a progress
   bar, installs it, and offers to start it.
 - **Running the installer always starts clean**: it removes the app's data (settings, environment, SSH key, browser
   login, chats, recordings, tests, knowledge base, framework copy). Uninstalling removes it too. **In-app updates keep
   everything.** (See `build/installer.nsh`.)
 - `npm run dist:offline` builds the full installer for computers without internet:
-  `dist/QA-ASD-STE100-Offline-Setup-<version>.exe`.
+  `dist/QA-STE100-Studio-Offline-Setup-<version>.exe`.
 - Not code-signed yet: on first install Windows shows "Windows protected your PC"; click **More info → Run anyway**.
 - `npm run icons` redraws the icon and installer images in `build/` from `scripts/make-icons.mjs`.
 - The installed app checks GitHub Releases of the public repository `beniaminzotescu/qa-automation-tool-releases` (see `electron-builder.yml`; the source repository stays private) when it starts,

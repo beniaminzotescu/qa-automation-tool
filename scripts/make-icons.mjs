@@ -47,9 +47,10 @@ const sidebar = `<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314
   </defs>
   <rect width="164" height="314" fill="url(#side)"/>
   <svg x="32" y="54" width="100" height="100" viewBox="0 0 512 512">${mark}</svg>
-  <text x="82" y="188" text-anchor="middle" font-family="Segoe UI, Arial" font-size="15" font-weight="700" fill="#ffffff">QA-ASD-STE100</text>
-  <text x="82" y="210" text-anchor="middle" font-family="Segoe UI, Arial" font-size="11" fill="#c7d4fb">Automated tests,</text>
-  <text x="82" y="226" text-anchor="middle" font-family="Segoe UI, Arial" font-size="11" fill="#c7d4fb">without writing code</text>
+  <text x="82" y="186" text-anchor="middle" font-family="Segoe UI, Arial" font-size="15" font-weight="700" fill="#ffffff">QA-STE100</text>
+  <text x="82" y="205" text-anchor="middle" font-family="Segoe UI, Arial" font-size="15" font-weight="700" fill="#ffffff">Studio</text>
+  <text x="82" y="228" text-anchor="middle" font-family="Segoe UI, Arial" font-size="11" fill="#c7d4fb">Automated tests,</text>
+  <text x="82" y="244" text-anchor="middle" font-family="Segoe UI, Arial" font-size="11" fill="#c7d4fb">without writing code</text>
 </svg>`
 
 /** Installer header (other pages): 150 x 57, white with the mark on the right. */

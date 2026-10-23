@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, wr
 import { basename, extname, join } from 'node:path'
 import { IPC, type KnowledgeBase, type KnowledgeFile, type KnowledgeLink } from '../shared/api'
 import type { PromptKnowledge } from './chatPrompt'
+import { toText } from './documents'
 
 // The knowledge base: documentation of the application under test (files and links), added by
 // the team so the assistant has full context. One per framework connection, in the app's data folder.
@@ -33,7 +34,7 @@ function save(projectId: string, knowledge: KnowledgeBase): KnowledgeBase {
   return knowledge
 }
 
-export function addFiles(projectId: string, paths: string[]): KnowledgeBase {
+export async function addFiles(projectId: string, paths: string[]): Promise<KnowledgeBase> {
   const knowledge = getKnowledge(projectId)
   mkdirSync(filesDir(projectId), { recursive: true })
   for (const source of paths) {
@@ -41,13 +42,16 @@ export function addFiles(projectId: string, paths: string[]): KnowledgeBase {
     // Keep the original name readable; the id avoids clashes between files with the same name.
     const target = join(filesDir(projectId), `${id.slice(0, 8)}-${basename(source)}`)
     copyFileSync(source, target)
+    // Word and Excel get a text copy next to them: that is what the assistant reads.
+    const textPath = await textCopy(target)
     const file: KnowledgeFile = {
       id,
       name: basename(source),
       note: '',
       path: target,
+      textPath,
       size: statSync(target).size,
-      readable: READABLE.has(extname(source).toLowerCase()),
+      readable: textPath !== null || READABLE.has(extname(source).toLowerCase()),
       addedAt: new Date().toISOString()
     }
     knowledge.files.push(file)
@@ -79,10 +83,26 @@ export function removeItem(projectId: string, id: string): KnowledgeBase {
   const knowledge = getKnowledge(projectId)
   const file = knowledge.files.find((f) => f.id === id)
   if (file) rmSync(file.path, { force: true })
+  if (file?.textPath) rmSync(file.textPath, { force: true })
   return save(projectId, {
     files: knowledge.files.filter((f) => f.id !== id),
     links: knowledge.links.filter((l) => l.id !== id)
   })
+}
+
+/** Word and Excel files (not text already) as `<file>.txt` next to them, or null. */
+async function textCopy(path: string): Promise<string | null> {
+  const ext = extname(path).toLowerCase()
+  if (ext !== '.docx' && ext !== '.xlsx') return null
+  try {
+    const text = await toText(path)
+    if (!text) return null
+    writeFileSync(`${path}.txt`, text)
+    return `${path}.txt`
+  } catch {
+    // A damaged or protected file: kept as it is, marked as not readable.
+    return null
+  }
 }
 
 /** What the assistant is told about the knowledge base. */
@@ -90,7 +110,7 @@ export function knowledgeForPrompt(projectId: string): PromptKnowledge {
   const knowledge = getKnowledge(projectId)
   return {
     filesDir: knowledge.files.length ? filesDir(projectId) : null,
-    files: knowledge.files.map((f) => ({ name: basename(f.path), note: f.note })),
+    files: knowledge.files.map((f) => ({ name: basename(f.textPath ?? f.path), note: f.note })),
     links: knowledge.links.map((l) => ({ url: l.url, note: l.note }))
   }
 }

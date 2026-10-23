@@ -6,6 +6,8 @@ import AccountScreen from './screens/AccountScreen'
 import AdminScreen from './screens/AdminScreen'
 import RepositoryScreen from './screens/RepositoryScreen'
 import KnowledgeScreen from './screens/KnowledgeScreen'
+import TestCasesScreen from './screens/TestCasesScreen'
+import YourTestsScreen from './screens/YourTestsScreen'
 import StudioScreen from './screens/StudioScreen'
 import OnboardingScreen from './screens/OnboardingScreen'
 import UpdateBar from './components/UpdateBar'
@@ -13,7 +15,7 @@ import UpdateBar from './components/UpdateBar'
 // The user's path: who are you → connect to Claude → preparing (automatic) → your environment
 // → the Studio. The framework itself is never shown; the QA team uses the Admin screen.
 
-type Screen = 'tests' | 'account' | 'knowledge' | 'repository' | 'settings' | 'admin'
+type Screen = 'tests' | 'runner' | 'cases' | 'account' | 'knowledge' | 'repository' | 'settings' | 'admin'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('tests')
@@ -73,7 +75,7 @@ export default function App() {
       <div className="app">
         <header className="topbar">
           <span className="brand">
-            QA-ASD-STE100 <AppVersion />
+            QA-STE100-Studio <AppVersion />
           </span>
         </header>
         <main className="content onboarding-page">
@@ -103,13 +105,23 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <button className="brand" onClick={() => setScreen('tests')}>
-          QA-ASD-STE100 <AppVersion />
+          QA-STE100-Studio <AppVersion />
         </button>
         <UpdateBar />
         <nav>
           <NavLink current={screen} screen="tests" onSelect={setScreen}>
             Studio
           </NavLink>
+          {project && account && (
+            <NavLink current={screen} screen="runner" onSelect={setScreen}>
+              Your tests
+            </NavLink>
+          )}
+          {project && (
+            <NavLink current={screen} screen="cases" onSelect={setScreen}>
+              Test cases
+            </NavLink>
+          )}
           {account && (
             <NavLink current={screen} screen="account" onSelect={setScreen}>
               Your environment
@@ -128,8 +140,15 @@ export default function App() {
           </NavLink>
         </nav>
       </header>
-      <main className={screen === 'tests' && project && account && claudeReady ? 'content studio-page' : 'content'}>
+      <main
+        className={
+          (screen === 'tests' && project && account && claudeReady) || (screen === 'runner' && project && account)
+            ? 'content studio-page'
+            : 'content'
+        }
+      >
         {screen === 'tests' && renderTests()}
+        {screen === 'runner' && project && account && <YourTestsScreen project={project} />}
         {screen === 'account' && (
           <AccountScreen
             onSaved={async () => {
@@ -151,6 +170,15 @@ export default function App() {
         )}
         {screen === 'repository' && <RepositoryScreen onRepoChanged={reloadProject} />}
         {screen === 'knowledge' && project && <KnowledgeScreen projectId={project.id} />}
+        {screen === 'cases' && project && (
+          <TestCasesScreen
+            projectId={project.id}
+            onOpenInStudio={async (caseId) => {
+              await window.api.openCaseInStudio(project.id, caseId)
+              setScreen('tests')
+            }}
+          />
+        )}
         {screen === 'admin' && <AdminScreen project={project} />}
       </main>
     </div>

@@ -9,7 +9,7 @@ export default function WelcomeScreen({ onChosen }: { onChosen(type: UserType): 
 
   return (
     <section className="narrow welcome">
-      <h1>Welcome to QA-ASD-STE100</h1>
+      <h1>Welcome to QA-STE100-Studio</h1>
       <p className="lead">
         Build automated tests by using your application and talking to Claude. When a test is strong, the app turns it
         into your team's automation framework.

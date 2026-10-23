@@ -76,14 +76,14 @@ export async function commitTranslation(
   if (files.length) await git(project, `add -- ${files.map(quote).join(' ')}`)
   const message = [`Add test: ${draft.name}`, '', card.summary, '', card.verified ? 'Verified: ran and passed.' : 'Not verified: the test was not run in the framework.']
   if (card.notes) message.push('', card.notes)
-  message.push('', 'Made with QA-ASD-STE100 from a tester\'s recording.')
+  message.push('', 'Made with QA-STE100-Studio from a tester\'s recording.')
   const messageFile = join(app.getPath('temp'), `qa-commit-${Date.now()}.txt`)
   writeFileSync(messageFile, message.join('\n'))
   let commit = await git(project, `commit -F ${quote(messageFile)}`)
   // Git on this computer may not know the tester's name yet: use their environment's username.
   if (commit.code !== 0 && /tell me who you are|user\.email|user\.name/i.test(commit.output)) {
     const username = getAccount()?.username || 'QA tester'
-    const email = username.includes('@') ? username : 'qa-asd-ste100@localhost'
+    const email = username.includes('@') ? username : 'qa-ste100-studio@localhost'
     commit = await git(project, `-c user.name=${quote(username)} -c user.email=${quote(email)} commit -F ${quote(messageFile)}`)
   }
   rmSync(messageFile, { force: true })
@@ -182,7 +182,7 @@ export async function exportForQa(project: Project, draftId: string, window: Bro
         ? `Translated into the framework on branch \`${translation.branch}\` (${translation.verified ? 'verified: ran and passed' : 'not verified'}).\n\n${translation.summary}${translation.notes ? `\n\n${translation.notes}` : ''}`
         : 'Not translated into the framework yet: `draft/` has the simple Playwright version.',
       '',
-      'Made with QA-ASD-STE100.'
+      'Made with QA-STE100-Studio.'
     ].join('\n')
   )
   rmSync(target.filePath, { force: true })
